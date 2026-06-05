@@ -1,0 +1,41 @@
+{
+  "name": "gh-roadmap",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch api/src/server.ts",
+    "build": "pnpm api:build && pnpm web:build",
+    "api:build": "tsc -p api/tsconfig.json",
+    "web:build": "vite build --config web/vite.config.ts",
+    "start": "node api/dist/api/src/server.js",
+    "typecheck": "tsc -p api/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.1.0",
+    "@fastify/middie": "^9.3.2",
+    "@fastify/static": "^8.3.0",
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.8.5",
+    "js-yaml": "^4.2.0",
+    "octokit": "^4.0.2",
+    "openai": "^6.39.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.5.4",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.5"
+  }
+}

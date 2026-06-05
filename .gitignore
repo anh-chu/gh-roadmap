@@ -1,0 +1,9 @@
+data/
+node_modules/
+dist/
+api/dist/
+web/dist/
+.env
+*.log
+.runtime-port
+.claude/

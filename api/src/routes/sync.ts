@@ -1,0 +1,37 @@
+import type { FastifyInstance } from "fastify";
+import { getKv } from "../db.js";
+import { reconcile } from "../sync.js";
+import { reconcileInsights } from "../insights.js";
+import type { SyncResult } from "../../../shared/types.js";
+
+// Manual full sync — same work the boot/nightly loop does, on demand from the
+// header "Synced" pill. GitHub reconcile + local insights reconcile.
+let _syncing = false;
+
+export async function syncRoutes(app: FastifyInstance): Promise<void> {
+  app.post("/api/sync", async (req, reply): Promise<SyncResult | undefined> => {
+    if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_OWNER || !process.env.GITHUB_REPO) {
+      reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+      return;
+    }
+    if (_syncing) {
+      reply.code(409).send({ error: "sync already in progress" });
+      return;
+    }
+    _syncing = true;
+    try {
+      const github = await reconcile();
+      const insights = await reconcileInsights();
+      return { ok: true, lastSyncAt: getKv("lastSyncAt"), github, insights };
+    } catch (err) {
+      req.log.error({ err }, "manual sync failed");
+      reply.code(502).send({
+        error: "sync failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    } finally {
+      _syncing = false;
+    }
+  });
+}
