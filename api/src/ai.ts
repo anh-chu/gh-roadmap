@@ -272,7 +272,11 @@ async function callChat(system: string, user: string, model: string): Promise<st
     ],
   });
   const text = resp.choices[0]?.message?.content ?? "";
-  return cleanMarkdown(text).trim();
+  const cleaned = cleanMarkdown(text).trim();
+  if (!cleaned) {
+    throw new Error(`AI returned empty response (model: ${model})`);
+  }
+  return cleaned;
 }
 
 // Models occasionally bold things we explicitly don't want bolded
@@ -448,7 +452,6 @@ export async function extractInsight(
 ): Promise<{ extracted: ExtractedInsight; model: string }> {
   const model = aiModelFor("extract");
   const user = buildExtractUserText(captured);
-  // Try with response_format first; fall back to plain text if server rejects it.
   let text = "";
   try {
     const resp = await client().chat.completions.create({
