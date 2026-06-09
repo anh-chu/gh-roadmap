@@ -25,6 +25,7 @@ import { logResolvedModels } from "./ai.js";
 import { insightsRoutes } from "./routes/insights.js";
 import { accountsRoutes } from "./routes/accounts.js";
 import { syncRoutes } from "./routes/sync.js";
+import { openapiRoutes } from "./routes/openapi.js";
 import { reconcileInsights } from "./insights.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -39,6 +40,7 @@ const GITHUB_REPO = process.env.GITHUB_REPO ?? "";
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 
 const NIGHTLY_MS = 24 * 60 * 60 * 1000;
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 async function main(): Promise<void> {
   const app = Fastify({ logger: true });
@@ -70,6 +72,7 @@ async function main(): Promise<void> {
   await app.register(insightsRoutes);
   await app.register(accountsRoutes);
   await app.register(syncRoutes);
+  await app.register(openapiRoutes);
   await app.register(webhookRoutes, { secret: GITHUB_WEBHOOK_SECRET });
 
   const isBuilt = __dirname.includes(`${"/"}dist${"/"}`);
@@ -143,12 +146,12 @@ async function main(): Promise<void> {
 
     setInterval(() => {
       reconcile()
-        .then((r) => app.log.info({ ...r }, "nightly reconcile done"))
-        .catch((err) => app.log.error({ err }, "nightly reconcile failed"));
+        .then((r) => app.log.info({ ...r }, "periodic reconcile done"))
+        .catch((err) => app.log.error({ err }, "periodic reconcile failed"));
       reconcileInsights()
-        .then((r) => app.log.info({ ...r }, "nightly insights reconcile done"))
-        .catch((err) => app.log.error({ err }, "nightly insights reconcile failed"));
-    }, NIGHTLY_MS);
+        .then((r) => app.log.info({ ...r }, "periodic insights reconcile done"))
+        .catch((err) => app.log.error({ err }, "periodic insights reconcile failed"));
+    }, RECONCILE_INTERVAL_MS);
 
     // Health snapshot loop — every 24h. Upserts keyed by UTC date so the most recent
     // "today" reading is always reflected even if the server reboots mid-day.

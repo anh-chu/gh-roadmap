@@ -12,6 +12,11 @@ import {
   type GhTimelineEvent,
 } from "./github.js";
 
+// Concurrency guard: prevent overlapping reconcile runs from the webhook debounce
+// and the poll loop. Manual sync route has its own _syncing flag as well.
+let _reconciling = false;
+let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function upsertIssue(i: GhIssue): void {
   db()
     .prepare(
@@ -143,27 +148,43 @@ export async function reconcile(): Promise<{
   reviews: number;
   events: number;
 }> {
-  const { issues, comments } = await fetchAllIssues();
-  const pulls = await fetchAllPulls();
+  if (_reconciling) return { issues: 0, comments: 0, pulls: 0, reviews: 0, events: 0 };
+  _reconciling = true;
+  try {
+  const last = getKv("lastSyncAt");
+  const lastWebhook = getKv("lastWebhookAt");
+
+  // Parallel fetch with early page cutoff on incremental sync.
+  const [issuesResult, pulls] = await Promise.all([
+    fetchAllIssues(last ?? undefined),
+    fetchAllPulls(last ?? undefined),
+  ]);
+  const { issues, comments } = issuesResult;
 
   // Floor for timeline fetches. First boot: 30 days. Subsequent: lastSyncAt - 7d.
-  const last = getKv("lastSyncAt");
   const floor = last
     ? new Date(Date.parse(last) - 7 * 24 * 3600 * 1000).toISOString()
     : new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-  const issuesNeedingTimeline = last
-    ? issues.filter((i) => i.updated_at > last)
-    : issues;
 
-  // Fetch timelines outside the SQLite transaction (network I/O).
+  // Skip timeline if webhook has been delivering events since last sync.
+  const webhookCurrent = !!(last && lastWebhook && Date.parse(lastWebhook) > Date.parse(last));
+  const issuesNeedingTimeline = webhookCurrent
+    ? []
+    : last
+      ? issues.filter((i) => i.updated_at > last)
+      : issues;
+
+  // Batch timeline fetches 5-wide (network I/O, outside SQLite transaction).
   let totalReviews = 0;
   const allEvents: GhTimelineEvent[] = [];
-  for (const i of issuesNeedingTimeline) {
-    try {
-      const evs = await fetchIssueTimelineSince(i.number, floor, 100);
-      for (const e of evs) allEvents.push(e);
-    } catch {
-      // Tolerate per-issue failures — partial timeline is fine.
+  const BATCH = 5;
+  for (let i = 0; i < issuesNeedingTimeline.length; i += BATCH) {
+    const chunk = issuesNeedingTimeline.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      chunk.map((issue) => fetchIssueTimelineSince(issue.number, floor, 100)),
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") allEvents.push(...r.value);
     }
   }
 
@@ -189,6 +210,27 @@ export async function reconcile(): Promise<{
     reviews: totalReviews,
     events: allEvents.length,
   };
+  } finally {
+    _reconciling = false;
+  }
+}
+
+// Schedule a reconcile after a debounce delay. Used by webhook handler so that
+// changes pushed via GitHub appear within seconds instead of waiting for the next
+// poll cycle. Debounce prevents a burst of webhooks from triggering N reconciles.
+export function scheduleReconcile(delayMs = 10_000): void {
+  if (_reconcileTimer) clearTimeout(_reconcileTimer);
+  _reconcileTimer = setTimeout(() => {
+    _reconcileTimer = null;
+    if (_reconciling) {
+      // Another reconcile is in-flight — try again after delay.
+      scheduleReconcile(delayMs);
+      return;
+    }
+    reconcile()
+      .then((r) => console.log(`webhook reconcile done – ${JSON.stringify(r)}`))
+      .catch((err) => console.error("webhook reconcile failed", err));
+  }, delayMs);
 }
 
 // Daily health snapshot — captured per UTC day. Upserts so a same-day call refreshes
@@ -290,9 +332,12 @@ type WebhookCommentPayload = {
 };
 
 export function handleWebhook(event: string, payload: unknown): void {
+  setKv("lastWebhookAt", new Date().toISOString());
   db()
     .prepare("INSERT INTO sync_log(event_type,payload,processed_at) VALUES(?,?,?)")
     .run(event, JSON.stringify(payload), new Date().toISOString());
+  // Debounced reconcile so changes appear without manual click.
+  scheduleReconcile(10_000);
 
   if (event === "issues") {
     const p = payload as WebhookIssuePayload;

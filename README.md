@@ -19,12 +19,17 @@ pnpm build && pnpm start
 
 Open [http://localhost:3000](http://localhost:3000) — the prototype board is served at `/`, API under `/api/*`.
 
+Agent/API definition links:
+
+- OpenAPI JSON: `http://localhost:<port>/api/openapi.json`
+- OpenAPI YAML: `http://localhost:<port>/api/openapi.yaml`
+
+Use the live port from `.runtime-port` when dev auto-bumps past 3000.
+
 ## Auth: GH App vs PAT
 
--   **PAT** — fastest path. Create a fine-grained personal access token with `repo` (read/write) scope. Single-user, 5,000 req/hr.
-    
--   **GitHub App** — *recommended for the team*. Install the app on the repo; installation tokens get **15,000 req/hr** and are not tied to a person. Set `GITHUB_TOKEN` to the installation token (or extend `src/github.ts` to mint one from a private key — out of scope for phase 1).
-    
+- **PAT** — fastest path. Create a fine-grained personal access token with `repo` (read/write) scope. Single-user, 5,000 req/hr.
+- **GitHub App** — _recommended for the team_. Install the app on the repo; installation tokens get **15,000 req/hr** and are not tied to a person. Set `GITHUB_TOKEN` to the installation token (or extend `src/github.ts` to mint one from a private key — out of scope for phase 1).
 
 ## Webhook setup
 
@@ -43,23 +48,15 @@ npx smee -u https://smee.io/<your-channel> -t http://localhost:3000/webhook/gith
 
 ## Rate-limit defenses
 
--   GraphQL bulk fetch (50 issues + 50 comments each per call)
-    
--   Webhook-driven inbound; reconcile only on boot + nightly
-    
--   Rate-limit headers captured on every response, exposed at `/api/meta`
-    
--   Logger warns when remaining < 10% of limit
-    
--   Per-issue write debounce (300ms) helper available in `sync.ts`
-    
+- GraphQL bulk fetch (50 issues + 50 comments each per call)
+- Webhook-driven inbound; reconcile only on boot + nightly
+- Rate-limit headers captured on every response, exposed at `/api/meta`
+- Logger warns when remaining < 10% of limit
+- Per-issue write debounce (300ms) helper available in `sync.ts`
 
 ## Out of scope (next phases)
 
--   OAuth login + role gating (Viewer/Editor/Admin)
-    
--   GH App private-key flow (installation token minting)
-    
--   Conditional ETag caching layer
-    
--   Tests
+- OAuth login + role gating (Viewer/Editor/Admin)
+- GH App private-key flow (installation token minting)
+- Conditional ETag caching layer
+- Tests

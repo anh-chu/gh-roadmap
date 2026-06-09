@@ -282,9 +282,10 @@ function dedupeSort(nums: number[]): number[] {
   return [...new Set(nums)].sort((a, b) => a - b);
 }
 
-export async function fetchAllPulls(): Promise<GhPull[]> {
+export async function fetchAllPulls(lastSyncAt?: string): Promise<GhPull[]> {
   const out: GhPull[] = [];
   let cursor: string | null = null;
+  const cutoff = lastSyncAt ? new Date(lastSyncAt).getTime() : 0;
   for (;;) {
     const data: GqlPullsPage = await octo().graphql<GqlPullsPage>(PULLS_QUERY, {
       owner: _owner,
@@ -292,7 +293,12 @@ export async function fetchAllPulls(): Promise<GhPull[]> {
       cursor,
     });
     const page = data.repository.pullRequests;
+    let cutoffHit = false;
     for (const n of page.nodes) {
+      if (cutoff && new Date(n.updatedAt).getTime() < cutoff) {
+        cutoffHit = true;
+        break;
+      }
       const linked = dedupeSort([
         ...n.closingIssuesReferences.nodes.map((x) => x.number),
         ...parseLinkedFromBody(n.body),
@@ -329,16 +335,17 @@ export async function fetchAllPulls(): Promise<GhPull[]> {
         reviews,
       });
     }
-    if (!page.pageInfo.hasNextPage) break;
+    if (cutoffHit || !page.pageInfo.hasNextPage) break;
     cursor = page.pageInfo.endCursor;
   }
   return out;
 }
 
-export async function fetchAllIssues(): Promise<{ issues: GhIssue[]; comments: GhComment[] }> {
+export async function fetchAllIssues(lastSyncAt?: string): Promise<{ issues: GhIssue[]; comments: GhComment[] }> {
   const issues: GhIssue[] = [];
   const comments: GhComment[] = [];
   let cursor: string | null = null;
+  const cutoff = lastSyncAt ? new Date(lastSyncAt).getTime() : 0;
 
   for (;;) {
     const data: GqlIssuesPage = await octo().graphql<GqlIssuesPage>(ISSUES_QUERY, {
@@ -347,7 +354,12 @@ export async function fetchAllIssues(): Promise<{ issues: GhIssue[]; comments: G
       cursor,
     });
     const page: GqlIssuesPage["repository"]["issues"] = data.repository.issues;
+    let cutoffHit = false;
     for (const n of page.nodes) {
+      if (cutoff && new Date(n.updatedAt).getTime() < cutoff) {
+        cutoffHit = true;
+        break;
+      }
       issues.push({
         number: n.number,
         title: n.title,
@@ -379,7 +391,7 @@ export async function fetchAllIssues(): Promise<{ issues: GhIssue[]; comments: G
         }
       }
     }
-    if (!page.pageInfo.hasNextPage) break;
+    if (cutoffHit || !page.pageInfo.hasNextPage) break;
     cursor = page.pageInfo.endCursor;
   }
   return { issues, comments };

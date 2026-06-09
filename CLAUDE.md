@@ -35,6 +35,9 @@ This file is the orientation doc. Read it before changing anything. Run instruct
   feature), module-level cache pattern in hooks, typed fetch wrappers in `web/src/lib/api.ts`,
   PRAGMA-guarded `ALTER` migrations in `api/src/db.ts`. All cross-tier types live in
   `shared/types.ts` — add there, don't duplicate per tier.
+- **Keep the API contract current.** When adding an endpoint, removing an endpoint, or changing any
+  request/response shape, update the OpenAPI definition in `api/src/openapi.ts` in the same change.
+  Agents use `/api/openapi.json` and `/api/openapi.yaml` as their contract.
 - **Never invent data.** Mock data is banned app-wide; render `—` or an honest empty state.
 
 ---
