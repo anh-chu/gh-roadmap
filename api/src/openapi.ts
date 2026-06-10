@@ -383,6 +383,13 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         post: op("ai", "refreshAiProgress", "Force-regenerate Progress AI read.", { responses: ok({ $ref: "#/components/schemas/AiBlock" }), "x-side-effects": true, "x-ai-call": true }),
       },
 
+      "/api/pm-actions": {
+        get: op("pmActions", "getPmActions", "List items needing PM craft work (spec depth, release artifacts, a decision). Deterministic detectors; AI-ranked when configured, raw detector output otherwise.", { responses: ok({ $ref: "#/components/schemas/PmActionsResponse" }) }),
+      },
+      "/api/pm-actions/refresh": {
+        post: op("pmActions", "refreshPmActions", "Force-regenerate the AI ranking of PM actions. 503 when AI is unconfigured.", { responses: ok({ $ref: "#/components/schemas/PmActionsResponse" }), "x-side-effects": true, "x-ai-call": true }),
+      },
+
       "/api/projects": {
         get: op("projects", "listProjects", "List configured GitHub Projects v2 boards.", { responses: ok(arrayOf("#/components/schemas/Project")) }),
       },
@@ -481,6 +488,29 @@ const components: Record<string, JsonSchema> = {
   FlowResult: { type: "object", properties: { state: { type: "string" }, score: { type: "number" }, signals: { type: "array", items: { type: "string" } } }, additionalProperties: true },
   FlowRule: { type: "object", additionalProperties: true },
   HealthLive: { type: "object", additionalProperties: true },
+  PmActionItem: {
+    type: "object",
+    required: ["issueNumber", "title", "category", "reason", "action"],
+    properties: {
+      issueNumber: { type: "integer" },
+      title: { type: "string" },
+      category: stringEnum(["thin-spec", "pre-release", "post-release", "decision-owed"]),
+      reason: { type: "string" },
+      action: { type: "string" },
+    },
+    additionalProperties: false,
+  },
+  PmActionsResponse: {
+    type: "object",
+    required: ["items", "aiRanked", "model", "generatedAt"],
+    properties: {
+      items: arrayOf("#/components/schemas/PmActionItem"),
+      aiRanked: { type: "boolean" },
+      model: nullableString,
+      generatedAt: nullableString,
+    },
+    additionalProperties: false,
+  },
   HealthSnapshot: { type: "object", additionalProperties: true },
   MetaResponse: { type: "object", additionalProperties: true },
   CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "string" } } }, required: ["labels", "milestones"] },

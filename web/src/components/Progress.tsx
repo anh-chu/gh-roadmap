@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { HealthSnapshotSummary, Issue, MetaResponse, RiskItem, ScheduleHealth, ScheduleStatus } from "../../../shared/types";
+import type { HealthSnapshotSummary, Issue, MetaResponse, PmActionCategory, PmActionItem, RiskItem, ScheduleHealth, ScheduleStatus } from "../../../shared/types";
 import { useHealth } from "../hooks/useHealth";
+import { usePmActions } from "../hooks/usePmActions";
 import { MorningBrief } from "./MorningBrief";
 import { AiBlock } from "./AiBlock";
 import { useAiProgress } from "../hooks/useAiProgress";
@@ -196,6 +197,9 @@ export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
           )}
         </div>
 
+        {/* 3b — ON YOUR PLATE (PM craft work, distinct from the eng-nudge list above) */}
+        <OnYourPlateCard issuesByNum={issueByNum} onOpenIssue={onOpen} />
+
         </div>{/* /pg-primary */}
 
         {/* 4 — SCHEDULE (headline) + MOMENTUM (secondary) — secondary rail */}
@@ -258,6 +262,74 @@ export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
         </div>
       </div>
     </section>
+  );
+}
+
+const PM_CAT_LABEL: Record<PmActionCategory, string> = {
+  "thin-spec": "spec",
+  "pre-release": "pre-release",
+  "post-release": "post-release",
+  "decision-owed": "decision",
+};
+
+// "On your plate" — PM craft work an item owes (spec depth, release artifacts, a call).
+// Detector-backed; AI reorders + phrases when configured. Always renders something.
+function OnYourPlateCard({
+  issuesByNum,
+  onOpenIssue,
+}: {
+  issuesByNum: Map<number, Issue>;
+  onOpenIssue: (i: Issue) => void;
+}): JSX.Element {
+  const { data, loading, error, refresh } = usePmActions();
+  const items = data?.items ?? [];
+
+  return (
+    <div className="hd-card hd-plate">
+      <div className="hd-card-head">
+        <h3>
+          On your plate
+          <span style={{ color: "var(--ink-4)", fontWeight: 400 }}> · {items.length} item{items.length === 1 ? "" : "s"}</span>
+        </h3>
+        {data?.aiRanked && (
+          <button
+            className="hd-regen"
+            onClick={() => void refresh()}
+            disabled={loading}
+            title="Regenerate ranking"
+          >
+            {loading ? "…" : "↻"}
+          </button>
+        )}
+      </div>
+      {error ? (
+        <div className="hd-empty">Couldn't load PM actions.</div>
+      ) : items.length === 0 ? (
+        <div className="hd-empty">Nothing on your plate — specs and releases look covered.</div>
+      ) : (
+        <div className="hd-risk-list">
+          {items.map((it: PmActionItem) => {
+            const issue = issuesByNum.get(it.issueNumber);
+            return (
+              <div
+                key={it.issueNumber}
+                className="hd-risk-row hd-plate-row"
+                onClick={() => {
+                  if (issue) onOpenIssue(issue);
+                }}
+                style={{ cursor: issue ? "pointer" : "default" }}
+              >
+                <span className={`pm-cat pm-cat-${it.category}`}>{PM_CAT_LABEL[it.category]}</span>
+                <span className="hd-risk-num">#{it.issueNumber}</span>
+                <span className="hd-risk-title">{it.title}</span>
+                <span className="hd-risk-reason">{it.action}</span>
+                <span className="hd-risk-chev">▶</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

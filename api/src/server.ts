@@ -21,6 +21,7 @@ import { flowRoutes } from "./routes/flow.js";
 import { healthRoutes } from "./routes/health.js";
 import { briefRoutes } from "./routes/brief.js";
 import { aiRoutes } from "./routes/ai.js";
+import { pmActionsRoutes } from "./routes/pmActions.js";
 import { logResolvedModels } from "./ai.js";
 import { insightsRoutes } from "./routes/insights.js";
 import { accountsRoutes } from "./routes/accounts.js";
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   await app.register(healthRoutes);
   await app.register(briefRoutes);
   await app.register(aiRoutes);
+  await app.register(pmActionsRoutes);
   await app.register(insightsRoutes);
   await app.register(accountsRoutes);
   await app.register(syncRoutes);

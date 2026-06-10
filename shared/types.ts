@@ -343,6 +343,30 @@ export interface AiProgress {
   fromCache: boolean;
 }
 
+// ─────────────── PM ACTIONS (what needs the PM) ───────────────
+
+// Distinct axis from at-risk: at-risk = work is in trouble (nudge eng);
+// pm-action = PM craft work this item owes (spec depth, release artifacts, a call).
+export type PmActionCategory = "thin-spec" | "pre-release" | "post-release" | "decision-owed";
+
+export interface PmActionItem {
+  issueNumber: number;
+  title: string;
+  category: PmActionCategory;
+  reason: string; // deterministic evidence ("body 40 chars, no acceptance criteria")
+  action: string; // the suggested next step; AI may refine, detector supplies a default
+}
+
+// Hybrid surface: detectors produce candidates (auditable, never invented); when AI is
+// configured it reorders by PM priority and rewrites `action`, and may drop false positives
+// (it can subtract, never add). `aiRanked` is false when AI is off — raw detector output.
+export interface PmActionsResponse {
+  items: PmActionItem[];
+  aiRanked: boolean;
+  model: string | null;
+  generatedAt: string | null;
+}
+
 // ─────────────── MORNING BRIEF ───────────────
 
 export type BriefAtRiskSeverity = { critical: number; high: number; medium: number };

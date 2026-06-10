@@ -324,6 +324,13 @@ export function initDb(path: string): Database.Database {
     db.exec("ALTER TABLE health_snapshots ADD COLUMN on_time INTEGER");
   }
 
+  // PM-actions cache reuses ai_insights but needs a candidate-set hash to invalidate when
+  // the underlying issues change. Older DBs pre-date it.
+  const aiCols = db.prepare("PRAGMA table_info(ai_insights)").all() as { name: string }[];
+  if (!new Set(aiCols.map((c) => c.name)).has("source_hash")) {
+    db.exec("ALTER TABLE ai_insights ADD COLUMN source_hash TEXT");
+  }
+
   // Migrate older DBs that pre-date master_filter_* columns. Must run before the seed
   // INSERT below — for existing DBs the CREATE TABLE IF NOT EXISTS above is a no-op
   // and the table still lacks these columns.

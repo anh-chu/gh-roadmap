@@ -37,6 +37,7 @@ import type {
   ProjectFull,
   ProjectItem,
   ProjectSummary,
+  PmActionsResponse,
   Pull,
   RangeGranularity,
   RoadmapPatchBody,
@@ -250,6 +251,17 @@ export async function fetchAiProgress(): Promise<AiProgress | null> {
 export async function refreshAiProgress(): Promise<AiProgress | null> {
   const r = await fetch("/api/ai/progress/refresh", { method: "POST" });
   return jsonOrNullOn503<AiProgress>(r);
+}
+
+export async function fetchPmActions(): Promise<PmActionsResponse> {
+  const r = await fetch("/api/pm-actions");
+  return jsonOrThrow<PmActionsResponse>(r);
+}
+
+// 503 → null only when AI is off mid-refresh; the GET path never 503s.
+export async function refreshPmActions(): Promise<PmActionsResponse | null> {
+  const r = await fetch("/api/pm-actions/refresh", { method: "POST" });
+  return jsonOrNullOn503<PmActionsResponse>(r);
 }
 
 // ─────────────── INSIGHTS ───────────────

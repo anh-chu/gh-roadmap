@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadAccountsForIssues } from "./insights.js";
 import { db } from "./db.js";
 import type { RoadmapTimeline } from "./health.js";
-import type { EffortRating, RiskItem, ScheduleHealth } from "../../shared/types.js";
+import type { EffortRating, PmActionItem, RiskItem, ScheduleHealth } from "../../shared/types.js";
 
 export type AiTask = "summary" | "progress" | "extract";
 
@@ -31,6 +31,7 @@ function loadPrompt(name: string): string {
 const SUMMARY_SYSTEM = loadPrompt("summarize.md");
 const PROGRESS_SYSTEM = loadPrompt("progress.md");
 const EXTRACT_INSIGHT_SYSTEM = loadPrompt("extract-insight.md");
+const PM_ACTIONS_SYSTEM = loadPrompt("pm-actions.md");
 const MERGE_INSIGHTS_SYSTEM = loadPrompt("merge-insights.md");
 const ACCOUNT_READ_SYSTEM = loadPrompt("account-read.md");
 
@@ -313,6 +314,98 @@ export async function analyzeProgress(
   const model = aiModelFor("progress");
   const analysis = await callChat(PROGRESS_SYSTEM, buildProgressUserText(input), model);
   return { analysis, model };
+}
+
+// ─────────────── PM ACTIONS (rank + phrase) ───────────────
+
+// The AI half of the hybrid: it reorders the deterministic candidates by PM priority,
+// drops clear false positives, and rewrites each `action` line. It cannot add issues —
+// `applyRanking` keeps only candidates that actually exist, so a hallucinated number is ignored.
+export interface PmActionRank {
+  issueNumber: number;
+  action: string;
+}
+
+function buildPmActionsUserText(candidates: PmActionItem[]): string {
+  const lines: string[] = ["Candidates:"];
+  for (const c of candidates) {
+    lines.push(`[${c.category}] #${c.issueNumber} ${c.title} — ${c.reason}`);
+  }
+  return lines.join("\n");
+}
+
+function parsePmActionsJson(text: string): PmActionRank[] {
+  let trimmed = text.trim();
+  if (trimmed.startsWith("```")) {
+    trimmed = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  }
+  const first = trimmed.indexOf("{");
+  if (first > 0) trimmed = trimmed.slice(first);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object") return [];
+  const items = (parsed as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return [];
+  const out: PmActionRank[] = [];
+  for (const x of items) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const n = typeof o.issue === "number" ? o.issue : Number(o.issue);
+    const action = typeof o.action === "string" ? o.action.trim() : "";
+    if (Number.isInteger(n) && n > 0 && action) out.push({ issueNumber: n, action });
+  }
+  return out;
+}
+
+// Apply the AI ranking to the live candidate set: keep only ranked issues that are still
+// real candidates, in the AI's order, with the AI's action text. Returns the reordered items.
+export function applyPmActionRanking(
+  candidates: PmActionItem[],
+  ranking: PmActionRank[],
+): PmActionItem[] {
+  const byNum = new Map(candidates.map((c) => [c.issueNumber, c]));
+  const out: PmActionItem[] = [];
+  const seen = new Set<number>();
+  for (const r of ranking) {
+    const c = byNum.get(r.issueNumber);
+    if (!c || seen.has(r.issueNumber)) continue;
+    seen.add(r.issueNumber);
+    out.push({ ...c, action: r.action });
+  }
+  return out;
+}
+
+export async function rankPmActions(
+  candidates: PmActionItem[],
+): Promise<{ ranking: PmActionRank[]; model: string }> {
+  const model = aiModelFor("progress");
+  const user = buildPmActionsUserText(candidates);
+  let text = "";
+  try {
+    const resp = await client().chat.completions.create({
+      model,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: PM_ACTIONS_SYSTEM },
+        { role: "user", content: user },
+      ],
+    });
+    text = resp.choices[0]?.message?.content ?? "";
+  } catch {
+    const resp = await client().chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: PM_ACTIONS_SYSTEM },
+        { role: "user", content: user },
+      ],
+    });
+    text = resp.choices[0]?.message?.content ?? "";
+  }
+  return { ranking: parsePmActionsJson(text), model };
 }
 
 // ─────────────── ACCOUNT READ ───────────────

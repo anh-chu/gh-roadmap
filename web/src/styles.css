@@ -1381,6 +1381,47 @@ a.d-num:hover { color: var(--accent); background: var(--accent-soft); }
   font-size: 10px;
   flex: 0 0 auto;
 }
+/* On your plate — PM-action category chips + regenerate affordance */
+.hd-regen {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink-3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.hd-regen:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.hd-regen:disabled { opacity: 0.5; cursor: default; }
+.hd-plate-row .hd-risk-reason {
+  font-family: var(--sans);
+  font-style: italic;
+  color: var(--ink-2);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-cat {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  min-width: 64px;
+  text-align: center;
+  background: var(--hover);
+  color: var(--ink-3);
+}
+.pm-cat-pre-release { color: var(--accent); }
+.pm-cat-decision-owed { color: var(--r); }
+.pm-cat-post-release { color: var(--green); }
+.pm-cat-thin-spec { color: var(--ink-3); }
+
 .hd-empty {
   color: var(--ink-4);
   text-align: center;
