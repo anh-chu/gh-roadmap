@@ -170,6 +170,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
   const [addingLabel, setAddingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
   const [comment, setComment] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const [dd, setDd] = useState<DropdownPos | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -221,6 +222,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
     setAddingLabel(false);
     setLabelDraft("");
     setComment("");
+    setExpanded(false);
     setDd(null);
     setEditingId(null);
     setPendingDelete(null);
@@ -327,7 +329,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
   return (
     <>
       {open && <div className="drawer-scrim" onClick={onClose} aria-hidden />}
-      <aside className={"drawer" + (open ? " open" : "")}>
+      <aside className={"drawer" + (open ? " open" : "") + (expanded ? " expanded" : "")}>
         {issue && (
           <>
             <div className="d-head">
@@ -361,6 +363,13 @@ export function Drawer(props: DrawerProps): JSX.Element {
                   }}
                 >
                   ⧉ Agent ref
+                </button>
+                <button
+                  className="d-expand"
+                  title={expanded ? "Collapse to side panel" : "Expand to large view"}
+                  onClick={() => setExpanded((v) => !v)}
+                >
+                  {expanded ? "⇲" : "⇱"}
                 </button>
                 <button className="close" onClick={onClose}>×</button>
               </div>

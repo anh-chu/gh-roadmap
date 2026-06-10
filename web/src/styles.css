@@ -732,6 +732,30 @@ button.sync-item:disabled { cursor: default; }
 }
 .drawer.open { transform: translateX(0); }
 
+/* Expanded: centered large mid-screen modal for easy reading. */
+.drawer.expanded {
+  top: 50%; right: auto; left: 50%; bottom: auto;
+  width: min(1080px, 92vw);
+  height: min(880px, 90vh);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  transform: translate(-50%, -48%);
+}
+.drawer.expanded.open { transform: translate(-50%, -50%); }
+
+.d-head .d-expand {
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--r-pill);
+  transition: color 120ms ease, background 120ms ease;
+}
+.d-head .d-expand:hover { color: var(--accent); background: var(--accent-soft); }
+
 .drawer .d-head {
   padding: 18px 24px 16px;
   border-bottom: 1px solid var(--border);
@@ -789,6 +813,8 @@ a.d-num:hover { color: var(--accent); background: var(--accent-soft); }
   background: var(--accent-soft);
 }
 .d-head .d-agent-ref + .close { margin-left: 0; }
+.d-head .d-agent-ref + .d-expand { margin-left: 0; }
+.d-head .d-expand + .close { margin-left: 0; }
 .d-head .close {
   margin-left: auto;
   background: transparent;
