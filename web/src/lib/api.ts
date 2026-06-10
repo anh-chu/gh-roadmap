@@ -37,6 +37,7 @@ import type {
   ProjectFull,
   ProjectItem,
   ProjectSummary,
+  RepoFile,
   PmActionsResponse,
   Pull,
   RangeGranularity,
@@ -262,6 +263,15 @@ export async function fetchPmActions(): Promise<PmActionsResponse> {
 export async function refreshPmActions(): Promise<PmActionsResponse | null> {
   const r = await fetch("/api/pm-actions/refresh", { method: "POST" });
   return jsonOrNullOn503<PmActionsResponse>(r);
+}
+
+// Read one file from the issues repo (read-only viewer). jsonOrThrow surfaces the
+// server's status text + error detail, so the viewer can show "not found" / "too large".
+export async function fetchRepoFile(path: string, ref?: string | null): Promise<RepoFile> {
+  const q = new URLSearchParams({ path });
+  if (ref) q.set("ref", ref);
+  const r = await fetch(`/api/repo-file?${q.toString()}`);
+  return jsonOrThrow<RepoFile>(r);
 }
 
 // ─────────────── INSIGHTS ───────────────

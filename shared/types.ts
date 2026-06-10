@@ -27,6 +27,16 @@ export interface ApiComment {
   updated_at: string;
 }
 
+// A file read from the issues repo for in-app (read-only) viewing.
+export interface RepoFile {
+  path: string;
+  ref: string | null;
+  content: string;
+  sha: string;
+  size: number;
+  htmlUrl: string | null;
+}
+
 export type BucketingField = "none" | "label" | "assignee" | "milestone";
 
 export type RangeGranularity = "week" | "month" | "quarter";

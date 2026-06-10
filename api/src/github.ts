@@ -1054,6 +1054,49 @@ export async function listInsightFiles(): Promise<GhInsightEntry[]> {
   return out;
 }
 
+// Read one file from the *issues* repo (not the insights repo) for in-app viewing.
+// Used to surface files referenced in an issue body. Read-only — never writes.
+// Throws { status: 404 } when the path is missing / is a directory, and
+// { status: 422 } when the file is too large (GitHub omits content >1MB) or binary.
+export interface RepoFileResult {
+  path: string;
+  ref: string | null; // ref requested by caller; null = repo default branch
+  content: string;
+  sha: string;
+  size: number;
+  htmlUrl: string | null;
+}
+
+export async function fetchRepoFile(path: string, ref?: string): Promise<RepoFileResult> {
+  const o = octo();
+  const res = await o.rest.repos.getContent({
+    owner: _owner,
+    repo: _repo,
+    path,
+    ...(ref ? { ref } : {}),
+  });
+  const data = res.data;
+  if (Array.isArray(data) || data.type !== "file") {
+    throw Object.assign(new Error("not a file"), { status: 404 });
+  }
+  // GitHub omits `content` for files larger than 1MB.
+  if (!("content" in data) || !data.content) {
+    throw Object.assign(new Error("file too large to display"), { status: 422 });
+  }
+  const text = Buffer.from(data.content, "base64").toString("utf8");
+  if (text.includes(String.fromCharCode(0))) {
+    throw Object.assign(new Error("binary file"), { status: 422 });
+  }
+  return {
+    path: data.path,
+    ref: ref ?? null,
+    content: text,
+    sha: data.sha,
+    size: data.size,
+    htmlUrl: data.html_url ?? null,
+  };
+}
+
 export async function fetchInsightBlob(sha: string): Promise<string> {
   const o = octo();
   const { owner, repo } = insightsRepo();

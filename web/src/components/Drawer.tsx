@@ -14,6 +14,7 @@ import { EffortChip } from "./EffortChip";
 import { useIssueSummary } from "../hooks/useIssueSummary";
 import { useIssueInsights } from "../hooks/useIssueInsights";
 import { InsightDrawer } from "./InsightDrawer";
+import { RepoFiles } from "./RepoFiles";
 
 // Build month options dynamically from "today": current month + next two, plus backlog.
 function buildMonthOpts(): { key: string | null; label: string }[] {
@@ -629,6 +630,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
               ) : (
                 <div className="d-desc d-desc-empty">No description.</div>
               )}
+              <RepoFiles body={issue.body} repoSlug={repoSlug} />
               <h4>Activity</h4>
               {loadingComments ? (
                 <>

@@ -313,6 +313,16 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           responses: ok(arrayOf("#/components/schemas/InsightListItem")),
         }),
       },
+      "/api/repo-file": {
+        get: op("issues", "getRepoFile", "Read one file from the issues repo for in-app viewing.", {
+          description: "Read-only view of a single file in the issues repo (GITHUB_OWNER/GITHUB_REPO), used to surface files referenced in an issue body. GitHub is the source of truth — nothing is cached. 404 if missing/a directory; 422 if too large (>1MB) or binary.",
+          parameters: [
+            { ...query("path", "Repo-relative file path, e.g. src/db.ts"), required: true },
+            query("ref", "Branch, tag, or commit SHA. Defaults to the repo default branch."),
+          ],
+          responses: ok({ $ref: "#/components/schemas/RepoFile" }),
+        }),
+      },
       "/api/insight-accounts": {
         get: op("insights", "listInsightAccounts", "List accounts referenced by insights.", {
           responses: ok(arrayOf("#/components/schemas/InsightAccount")),
@@ -466,6 +476,15 @@ const components: Record<string, JsonSchema> = {
       labels: { type: "array", items: { type: "string" } }, updatedAt: { type: "string" },
       plannedMonth: nullableString, plannedWeek: nullableString, roadmapNotes: nullableString,
       position: { type: ["integer", "null"] }, isTodo: { type: "boolean" },
+    },
+    additionalProperties: false,
+  },
+  RepoFile: {
+    type: "object",
+    required: ["path", "content", "sha", "size"],
+    properties: {
+      path: { type: "string" }, ref: nullableString, content: { type: "string" },
+      sha: { type: "string" }, size: { type: "integer" }, htmlUrl: nullableString,
     },
     additionalProperties: false,
   },
