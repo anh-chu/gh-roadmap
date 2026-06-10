@@ -69,8 +69,17 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       title: "gh-roadmap API",
       version: "0.2.0",
       summary: "Local PM roadmap API for issues, planning metadata, insights, accounts, AI reads, health, and sync actions.",
-      description:
-        "No auth. Intended for localhost agent use. GitHub-backed writes mutate the configured GitHub repo. App-only planning fields stay in SQLite.",
+      description: [
+        "No auth — localhost, single user. Safe to call freely from an agent.",
+        "",
+        "**Scoping.** GET reads are filtered by the workspace master filter (label include/exclude lists, default `include: [pod:mht]`). Write endpoints are intentionally NOT filtered.",
+        "",
+        "**Field ownership.** `title`, `body`, `state`, `assignee`, `labels`, `milestone`, and comments are mirrored to/from GitHub — `PATCH /api/issues/{num}` writes them to the real repo. `plannedMonth` (format `YYYY-MM`), `plannedWeek` (format `YYYY-Www`, ISO week), `isTodo`, `roadmapNotes`, and `position` are app-only planning fields kept in SQLite and NEVER written back to GitHub — set them via `PATCH /api/issues/{num}/roadmap`.",
+        "",
+        "**Operation flags.** `x-side-effects`: mutates state. `x-github-write`: mutates the real GitHub repo (issues / comments / PRs), not just the local DB — use deliberately. `x-ai-call`: invokes the configured AI model (returns 503 when AI is unset).",
+        "",
+        "**Insight flow.** `POST /api/insights/capture` creates a draft in the inbox; the PM reviews it; publishing opens a PR on the product repo; merged insights appear on the next sync.",
+      ].join("\n"),
     },
     servers: [{ url: baseUrl }],
     security: [],
@@ -125,6 +134,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           responses: ok(arrayOf("#/components/schemas/Issue")),
         }),
         post: op("issues", "createIssue", "Create GitHub issue, then mirror it locally.", {
+          description: "Creates the issue on the real GitHub repo, then mirrors it into SQLite. New issues carry no planning metadata until you PATCH .../roadmap.",
           requestBody: body({ $ref: "#/components/schemas/IssueCreate" }),
           responses: ok({ $ref: "#/components/schemas/Issue" }),
           "x-side-effects": true,
@@ -133,6 +143,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       },
       "/api/issues/{num}": {
         patch: op("issues", "updateIssue", "Update GitHub-owned issue fields.", {
+          description: "Writes title / body / state / assignee / labels / milestone to the real GitHub repo. For app-only planning fields (plannedMonth, plannedWeek, isTodo, roadmapNotes, position) use PATCH /api/issues/{num}/roadmap instead.",
           parameters: [numberParam],
           requestBody: body({ $ref: "#/components/schemas/IssuePatch" }),
           responses: ok({ $ref: "#/components/schemas/Issue" }),
@@ -142,6 +153,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       },
       "/api/issues/{num}/roadmap": {
         patch: op("issues", "updateIssueRoadmap", "Update app-only planning metadata for one issue.", {
+          description: "App-only planning fields, stored in SQLite and never written to GitHub. plannedMonth is YYYY-MM; plannedWeek is YYYY-Www (ISO week). Send only the fields you want to change.",
           parameters: [numberParam],
           requestBody: body({ $ref: "#/components/schemas/RoadmapPatch" }),
           responses: ok({ $ref: "#/components/schemas/RoadmapUpdate" }),

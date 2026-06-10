@@ -44,6 +44,72 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+// Build an agent-ready reference for one issue: the key facts plus the localhost
+// API endpoints that act on it. Shapes live in /api/openapi.json — we point at it
+// rather than duplicate request bodies here (which would drift from the contract).
+function buildAgentRef(issue: Issue, repoSlug: string | null): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+  const gh = repoSlug ? `https://github.com/${repoSlug}/issues/${issue.num}` : "—";
+  const labels = issue.labels.length ? issue.labels.join(", ") : "none";
+  const planned = issue.month ?? (issue.isTodo ? "TODO" : "Backlog");
+  return `# GH Roadmap — Issue #${issue.num}
+
+${issue.title}
+
+- State: ${issue.state}
+- Assignee: @${issue.assignee}
+- Area: ${issue.area}
+- Labels: ${labels}
+- Milestone: ${issue.milestone ?? "none"}
+- Planned: ${planned}${issue.week ? ` (week ${issue.week})` : ""}
+- Effort: ${issue.effort ?? "—"}
+- Updated: ${issue.updatedAt}
+- GitHub: ${gh}
+
+## API (localhost, no auth)
+
+Full machine-readable contract: ${origin}/api/openapi.json (or ${origin}/api/openapi.yaml)
+
+Endpoints for this issue:
+- GET   ${origin}/api/issues                       list scoped issues (this one included)
+- PATCH ${origin}/api/issues/${issue.num}              update GitHub-owned fields (title, body, state, assignee, labels, milestone)
+- PATCH ${origin}/api/issues/${issue.num}/roadmap      update app-only planning metadata (plannedMonth, plannedWeek, isTodo, roadmapNotes, position)
+- GET   ${origin}/api/issues/${issue.num}/comments     list comments
+- POST  ${origin}/api/issues/${issue.num}/comments     add a comment
+- GET   ${origin}/api/issues/${issue.num}/insights     linked customer insights
+
+Request/response shapes are defined in the OpenAPI doc above. App-only fields are never written back to GitHub.
+`;
+}
+
+// Prefer the async Clipboard API; fall back to execCommand on non-secure contexts
+// (Chrome gates navigator.clipboard on http://<lan-ip> etc.). Mirrors InsightInbox.
+function copyText(s: string): void {
+  if (navigator?.clipboard?.writeText) {
+    void navigator.clipboard.writeText(s).catch(() => fallbackCopy(s));
+    return;
+  }
+  fallbackCopy(s);
+}
+
+function fallbackCopy(s: string): void {
+  const ta = document.createElement("textarea");
+  ta.value = s;
+  ta.style.position = "fixed";
+  ta.style.top = "-1000px";
+  ta.style.left = "-1000px";
+  ta.style.opacity = "0";
+  ta.setAttribute("readonly", "");
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    /* nothing else to try */
+  }
+  document.body.removeChild(ta);
+}
+
 function avatarClass(author: string | null): string {
   // Generic avatar — no name-based theming. Stable class per author so CSS can colourise consistently.
   const slug = (author ?? "x")
@@ -285,6 +351,16 @@ export function Drawer(props: DrawerProps): JSX.Element {
                   {issue.state}
                 </span>
                 <FlowPill result={flowResult} size="md" />
+                <button
+                  className="d-agent-ref"
+                  title="Copy an agent-ready reference for this issue (facts + API endpoints)"
+                  onClick={() => {
+                    copyText(buildAgentRef(issue, repoSlug));
+                    onToast("Agent reference copied");
+                  }}
+                >
+                  ⧉ Agent ref
+                </button>
                 <button className="close" onClick={onClose}>×</button>
               </div>
               {editingTitle ? (

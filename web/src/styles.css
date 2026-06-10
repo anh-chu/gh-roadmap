@@ -772,6 +772,23 @@ a.d-num:hover { color: var(--accent); background: var(--accent-soft); }
   color: var(--purple);
 }
 .d-head .d-state.closed::before { background: var(--purple); }
+.d-head .d-agent-ref {
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  border: none;
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.d-head .d-agent-ref:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.d-head .d-agent-ref + .close { margin-left: 0; }
 .d-head .close {
   margin-left: auto;
   background: transparent;
