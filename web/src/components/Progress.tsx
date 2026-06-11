@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HealthSnapshotSummary, Issue, MetaResponse, PmActionCategory, PmActionItem, RiskItem, ScheduleHealth, ScheduleStatus } from "../../../shared/types";
+import { issueColumnKey, milestoneColumnKey, planPrecision } from "../lib/timeRange";
 import { useHealth } from "../hooks/useHealth";
 import { usePmActions } from "../hooks/usePmActions";
 import { MorningBrief } from "./MorningBrief";
@@ -131,6 +132,31 @@ export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
 
   const syncedAgo = meta ? relativeTime(meta.lastSyncAt) : "—";
 
+  // Plan-vs-milestone drift over scheduled (planned-only, backlog excluded) open issues.
+  const drift = useMemo(() => {
+    let earlier = 0;
+    let later = 0;
+    let unanchored = 0;
+    let aligned = 0;
+    for (const i of issues) {
+      if (i.state !== "open") continue;
+      // Compare at the issue's own planning precision (week if plannedWeek, else month).
+      const precision = planPrecision(i);
+      if (!precision) continue; // backlog / TODO — nothing committed to compare
+      const planCol = issueColumnKey(precision, i.month, i.week);
+      if (!planCol) continue;
+      const msCol = milestoneColumnKey(i.milestoneDue, precision);
+      if (!msCol) {
+        if (i.milestone) unanchored++; // milestone exists but has no due date
+        continue;
+      }
+      if (planCol < msCol) earlier++;
+      else if (planCol > msCol) later++;
+      else aligned++;
+    }
+    return { earlier, later, unanchored, aligned };
+  }, [issues]);
+
   return (
     <section className="progress active reveal" style={{ animationDelay: "120ms" }}>
       <div className="pg-col">
@@ -225,6 +251,20 @@ export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
               {schedule === null || schedule.status === "no-plan"
                 ? "no roadmap commitments"
                 : `${schedule.committed} committed · ${schedule.overdue} overdue · ${schedule.dueSoonAtRisk} due now, not moving`}
+            </div>
+          </div>
+
+          <div className="hd-card pg-stat secondary">
+            <div className="hd-card-head">
+              <h3>Plan drift</h3>
+              <span className="hd-asof">plan vs milestone</span>
+            </div>
+            <div className="hd-sub">
+              {drift.earlier === 0 && drift.later === 0 && drift.unanchored === 0
+                ? drift.aligned === 0
+                  ? "no dated milestones on scheduled work"
+                  : `all ${drift.aligned} aligned`
+                : `${drift.earlier} planned earlier than milestone · ${drift.later} later · ${drift.unanchored} unanchored`}
             </div>
           </div>
 

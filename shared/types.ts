@@ -9,6 +9,7 @@ export interface ApiIssue {
   state: IssueState;
   assignee: string | null;
   milestone: string | null;
+  milestoneDue: string | null;
   labels: string[];
   updatedAt: string;
   plannedMonth: string | null;
@@ -80,11 +81,27 @@ export interface BucketsInfo {
   options: string[];
 }
 
+// App-level authority (layer 2): viewer = read-only, editor = all app writes,
+// admin = editor + role management + AI settings + data export/import.
+export type Role = "viewer" | "editor" | "admin";
+
 export interface AuthUser {
   email: string;
   name: string;
   picture: string | null;
+  role: Role;
   isAdmin: boolean;
+}
+
+// A row in the users table (role management — admin Users panel).
+export interface AppUser {
+  email: string;
+  name: string | null;
+  role: Role;
+  // true when the email is in ADMIN_EMAILS — immutable bootstrap admin, role can't be edited in-app.
+  envAdmin: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AuthMe {
@@ -158,6 +175,7 @@ export interface Issue {
   state: IssueState;
   assignee: string;
   milestone: string | null;
+  milestoneDue: string | null;
   comments: number;
   labels: string[];
   updatedAt: string;
@@ -688,6 +706,7 @@ export function fromApi(r: ApiIssue): Issue {
     state: r.state,
     assignee: r.assignee ?? "unassigned",
     milestone: r.milestone ?? null,
+    milestoneDue: r.milestoneDue ?? null,
     comments: 0,
     labels,
     updatedAt: r.updatedAt,

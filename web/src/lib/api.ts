@@ -8,6 +8,7 @@ import type {
   AccountProfilePatch,
   AccountIngestRow,
   AccountIngestResult,
+  AppUser,
   AuthMe,
   ApiComment,
   ApiInsightAccount,
@@ -84,6 +85,31 @@ export async function fetchAuthMe(): Promise<AuthMe> {
 
 export async function logout(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" });
+}
+
+// Role management (admin-only — the Users panel in the header).
+export async function fetchUsers(): Promise<AppUser[]> {
+  const r = await fetch("/api/users");
+  return jsonOrThrow<AppUser[]>(r);
+}
+
+export async function patchUserRole(email: string, role: AppUser["role"]): Promise<{ email: string; role: string }> {
+  const r = await fetch(`/api/users/${encodeURIComponent(email)}/role`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  return jsonOrThrow<{ email: string; role: string }>(r);
+}
+
+// Pre-provision a user (admin-only) before they have signed in.
+export async function createUser(email: string, role: AppUser["role"]): Promise<AppUser> {
+  const r = await fetch("/api/users", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, role }),
+  });
+  return jsonOrThrow<AppUser>(r);
 }
 
 export async function fetchCatalog(): Promise<CatalogResponse> {

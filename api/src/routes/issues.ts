@@ -11,6 +11,7 @@ type IssueJoinedRow = {
   state: string;
   assignee: string | null;
   milestone: string | null;
+  milestone_due: string | null;
   labels: string;
   updated_at: string;
   planned_month: string | null;
@@ -28,6 +29,7 @@ function rowToJson(r: IssueJoinedRow) {
     state: r.state,
     assignee: r.assignee,
     milestone: r.milestone,
+    milestoneDue: r.milestone_due,
     labels: JSON.parse(r.labels) as string[],
     updatedAt: r.updated_at,
     plannedMonth: r.planned_month,
@@ -83,7 +85,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const params = mf ? mf.params : [];
     const rows = db()
       .prepare(
-        `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.labels, i.updated_at,
+        `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at,
                 m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
          FROM issues i
          LEFT JOIN roadmap_meta m ON m.issue_number = i.number

@@ -326,6 +326,11 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
         onStateToggle={handleStateToggle}
         onAssignee={handleAssignee}
         onMonth={handleMonth}
+        onMove={(num, target) => {
+          void issuesApi.move(num, target).then((ok) => {
+            if (ok) toast.show("Saved");
+          });
+        }}
         onBody={handleBody}
         onLabels={handleLabels}
         onMilestone={handleMilestone}

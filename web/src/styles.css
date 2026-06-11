@@ -695,6 +695,10 @@ button.av {
   font-size: 11px;
 }
 .card-meta .com svg { width: 11px; height: 11px; }
+/* Milestone-vs-plan drift chip — same shape as .com */
+.card-drift-chip { color: var(--accent); }
+/* Planned-but-no-milestone — an alert, same weight as the drift warn */
+.card-unanchored-chip { color: var(--accent); }
 .card-state {
   display: inline-flex; align-items: center; gap: 4px;
 }
@@ -1199,6 +1203,20 @@ a.d-num:hover { color: var(--accent); background: var(--accent-soft); }
 .d-state.editable { cursor: pointer; }
 .editable-dd { cursor: pointer; }
 .editable-dd:hover { color: var(--accent); }
+
+/* "Snap to milestone" — shown in the drawer only when plan and milestone drift */
+.d-snap-milestone {
+  display: block;
+  margin-top: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.d-snap-milestone:hover { background: var(--accent-soft); }
 
 /* drawer: label chips + milestone + description editing */
 .d-labels {
@@ -3616,3 +3634,45 @@ button.insight-account-chip:hover {
   color: var(--ink);
   resize: vertical;
 }
+
+/* ─── Users panel (admin role management) ─── */
+.users-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+}
+.users-email {
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.users-role-select {
+  font-size: 12px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.users-locked { font-size: 12px; color: var(--ink-4); }
+.users-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.users-add-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.users-error { font-size: 12px; color: var(--red, #c83c3c); }

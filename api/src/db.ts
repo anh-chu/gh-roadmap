@@ -67,6 +67,7 @@ export function initDb(path: string): Database.Database {
       state        TEXT NOT NULL,
       assignee     TEXT,
       milestone    TEXT,
+      milestone_due TEXT,
       labels       TEXT NOT NULL DEFAULT '[]',
       updated_at   TEXT NOT NULL,
       created_at   TEXT,
@@ -293,6 +294,14 @@ export function initDb(path: string): Database.Database {
       updated_at   TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      email       TEXT PRIMARY KEY,            -- always stored lowercase (matches auth.ts)
+      name        TEXT,
+      role        TEXT NOT NULL DEFAULT 'viewer',  -- viewer | editor | admin
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS workspace_config (
       id                      INTEGER PRIMARY KEY CHECK (id = 1),
       bucketing_field         TEXT NOT NULL DEFAULT 'label',
@@ -320,6 +329,7 @@ export function initDb(path: string): Database.Database {
   const issueColNames = new Set(issueCols.map((c) => c.name));
   if (!issueColNames.has("created_at")) db.exec("ALTER TABLE issues ADD COLUMN created_at TEXT");
   if (!issueColNames.has("closed_at")) db.exec("ALTER TABLE issues ADD COLUMN closed_at TEXT");
+  if (!issueColNames.has("milestone_due")) db.exec("ALTER TABLE issues ADD COLUMN milestone_due TEXT");
 
   // Schedule trend: snapshots predate on_time. Backfill repopulates it.
   const hsCols = db.prepare("PRAGMA table_info(health_snapshots)").all() as { name: string }[];
@@ -514,4 +524,53 @@ export function setKv(key: string, value: string): void {
 export function getKv(key: string): string | null {
   const row = db().prepare("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value ?? null;
+}
+
+// ---- users (app-level roles — layer 2) -------------------------------------------------
+// Emails are stored lowercase everywhere (matches auth.ts ADMIN_EMAILS / domain checks).
+
+export type UserRow = {
+  email: string;
+  name: string | null;
+  role: "viewer" | "editor" | "admin";
+  created_at: string;
+  updated_at: string;
+};
+
+export function getUser(email: string): UserRow | undefined {
+  return db().prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase()) as UserRow | undefined;
+}
+
+// Upsert on each successful Google login: refresh the name, preserve the role
+// (default viewer on first sight).
+export function upsertUserOnLogin(email: string, name: string): void {
+  const now = new Date().toISOString();
+  db()
+    .prepare(
+      `INSERT INTO users(email, name, role, created_at, updated_at) VALUES(?, ?, 'viewer', ?, ?)
+       ON CONFLICT(email) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
+    )
+    .run(email.toLowerCase(), name, now, now);
+}
+
+// Admin pre-provision: create (or re-role) a user before their first login.
+// upsertUserOnLogin preserves the role on conflict, so the pre-set role survives sign-in.
+export function upsertUserWithRole(email: string, role: UserRow["role"]): void {
+  const now = new Date().toISOString();
+  db()
+    .prepare(
+      `INSERT INTO users(email, name, role, created_at, updated_at) VALUES(?, NULL, ?, ?, ?)
+       ON CONFLICT(email) DO UPDATE SET role = excluded.role, updated_at = excluded.updated_at`,
+    )
+    .run(email.toLowerCase(), role, now, now);
+}
+
+export function setUserRole(email: string, role: UserRow["role"]): void {
+  db()
+    .prepare("UPDATE users SET role = ?, updated_at = ? WHERE email = ?")
+    .run(role, new Date().toISOString(), email.toLowerCase());
+}
+
+export function listUsers(): UserRow[] {
+  return db().prepare("SELECT * FROM users ORDER BY email").all() as UserRow[];
 }

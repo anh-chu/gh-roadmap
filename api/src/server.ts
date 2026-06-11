@@ -32,6 +32,7 @@ import { repoFileRoutes } from "./routes/repoFile.js";
 import { dataRoutes } from "./routes/data.js";
 import { reconcileInsights } from "./insights.js";
 import { authRoutes } from "./routes/auth.js";
+import { usersRoutes } from "./routes/users.js";
 import { authEnabled, userFromRequest } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -82,11 +83,29 @@ async function main(): Promise<void> {
     if (!url.startsWith("/api/")) return; // SPA + assets load so the login screen can render
     if (url.startsWith("/api/auth/")) return; // login flow must be reachable while logged out
     if (!user) return reply.code(401).send({ error: "authentication required" });
+
+    // Global viewer gate (layer 2): viewers are read-only — any non-GET/HEAD /api request is 403
+    // unless exempt. Rule for exemption: writes that touch only the caller's own row/cookie or
+    // feed a reviewed inbox, never shared state directly. Today: the auth flow (logout is a POST)
+    // and insight capture (owner decision 2026-06-11: capture lands in the PM-reviewed inbox, so
+    // viewers — e.g. sales hearing customer signal — may capture). The self-scoped pod-switch
+    // route (/api/workspaces/active) will join this list when multi-pod lands.
+    // Note the gate is method-based: lazy AI cache-fill on GET is allowed for viewers by design.
+    const viewerExemptPrefixes = ["/api/auth/", "/api/insights/capture"];
+    if (
+      user.role === "viewer" &&
+      req.method !== "GET" &&
+      req.method !== "HEAD" &&
+      !viewerExemptPrefixes.some((p) => url.startsWith(p))
+    ) {
+      return reply.code(403).send({ error: "read-only access — ask an admin for editor access" });
+    }
   });
 
   // API routes mount first so anything under /api or /webhook is handled by Fastify;
   // the SPA (vite middleware in dev, static dist in prod) catches everything else.
   await app.register(authRoutes);
+  await app.register(usersRoutes);
   await app.register(issuesRoutes);
   await app.register(commentsRoutes);
   await app.register(metaRoutes);

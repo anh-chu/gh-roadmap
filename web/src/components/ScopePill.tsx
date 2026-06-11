@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { WorkspaceConfig } from "../../../shared/types";
+import { canEdit } from "../lib/role";
 
 const LABEL_RE = /^[a-zA-Z0-9:_-]{1,32}$/;
 const MAX_ENTRIES = 20;
@@ -52,6 +53,7 @@ export function ScopePill({ config, onChange }: ScopePillProps): JSX.Element {
   }, [open]);
 
   const handleOpen = (): void => {
+    if (!canEdit()) return; // viewers see the scope but can't edit it (shared workspace config)
     const r = btnRef.current?.getBoundingClientRect();
     if (r) setAnchor(r);
     setOpen((v) => !v);

@@ -2,6 +2,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Issue } from "../../../shared/types";
 import { IssueRefMarkdown } from "./IssueRefMarkdown";
+import { canEdit } from "../lib/role";
 
 interface AiBlockProps {
   label: string;
@@ -37,16 +38,19 @@ export function AiBlock(props: AiBlockProps): JSX.Element {
         <span className="ai-block-meta">
           {content ? `${model} · ${relTime(generatedAt)}` : ""}
         </span>
-        <button
-          type="button"
-          className={"ai-refresh-btn" + (loading ? " spinning" : "")}
-          onClick={onRefresh}
-          disabled={loading}
-          aria-label="Refresh"
-          title="Refresh"
-        >
-          ⟳
-        </button>
+        {/* Regenerate is a POST (writes the shared cache) — hidden for viewers. */}
+        {canEdit() && (
+          <button
+            type="button"
+            className={"ai-refresh-btn" + (loading ? " spinning" : "")}
+            onClick={onRefresh}
+            disabled={loading}
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            ⟳
+          </button>
+        )}
       </div>
       {loading && !content ? (
         <div className="ai-content">
@@ -56,7 +60,7 @@ export function AiBlock(props: AiBlockProps): JSX.Element {
         </div>
       ) : error ? (
         <div className="ai-error">
-          Couldn't load {label.toLowerCase()}. <button type="button" onClick={onRefresh}>⟳</button>
+          Couldn't load {label.toLowerCase()}.{canEdit() && <> <button type="button" onClick={onRefresh}>⟳</button></>}
         </div>
       ) : (
         <div className="ai-content">

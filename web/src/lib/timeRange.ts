@@ -209,6 +209,42 @@ export function issueColumnKey(
   return null;
 }
 
+// Project a milestone due_on date onto the time axis. Null = unanchored (no due date).
+export function milestoneColumnKey(dueOn: string | null, granularity: RangeGranularity): string | null {
+  if (!dueOn) return null;
+  const d = new Date(dueOn);
+  if (Number.isNaN(d.getTime())) return null;
+  if (granularity === "week") {
+    const { year, week } = isoWeekParts(d);
+    return weekKey(year, week);
+  }
+  if (granularity === "month") return ymKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+  return qKey(d.getUTCFullYear(), quarterFromMonth0(d.getUTCMonth()));
+}
+
+export type DriftState = "aligned" | "drift" | "unanchored" | "no-plan";
+
+// The precision the issue is actually planned at: week beats month. Null = no plan.
+export function planPrecision(issue: { month: string | null; week: string | null }): "week" | "month" | null {
+  if (issue.week) return "week";
+  if (issue.month) return "month";
+  return null;
+}
+
+// Compare plan vs milestone at the issue's own planning precision (plannedWeek → ISO week,
+// plannedMonth → month). View granularity does not affect drift. Drift is signal, not error.
+export function driftState(
+  issue: { month: string | null; week: string | null; milestoneDue: string | null },
+): DriftState {
+  const precision = planPrecision(issue);
+  if (!precision) return "no-plan";
+  const planCol = issueColumnKey(precision, issue.month, issue.week);
+  if (!planCol) return "no-plan";
+  const msCol = milestoneColumnKey(issue.milestoneDue, precision);
+  if (!msCol) return "unanchored";
+  return planCol === msCol ? "aligned" : "drift";
+}
+
 // Grid template per granularity.
 export function gridMinWidth(granularity: RangeGranularity): string {
   if (granularity === "week") return "minmax(160px, 1fr)";

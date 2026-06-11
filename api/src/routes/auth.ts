@@ -10,6 +10,7 @@ import {
   verifyState,
 } from "../auth.js";
 import type { AuthMe } from "../../../shared/types.js";
+import { upsertUserOnLogin } from "../db.js";
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // Who am I — drives the frontend login gate + admin-control visibility.
@@ -18,7 +19,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const user = userFromRequest(req);
     return {
       authEnabled: enabled,
-      user: user ? { email: user.email, name: user.name, picture: user.picture, isAdmin: user.isAdmin } : null,
+      user: user
+        ? { email: user.email, name: user.name, picture: user.picture, role: user.role, isAdmin: user.isAdmin }
+        : null,
     };
   });
 
@@ -42,7 +45,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         const gu = await exchangeCodeForUser(req, code);
         if (!gu.verified) return reply.redirect("/?auth_error=unverified_email");
         if (!emailAllowed(gu.email)) return reply.redirect("/?auth_error=domain_not_allowed");
-        setSessionCookie(req, reply, { email: gu.email, name: gu.name, picture: gu.picture });
+        const email = gu.email.toLowerCase(); // emails are lowercase everywhere (users table, ADMIN_EMAILS)
+        upsertUserOnLogin(email, gu.name); // role preserved (default viewer on first sight)
+        setSessionCookie(req, reply, { email, name: gu.name, picture: gu.picture });
         return reply.redirect("/");
       } catch (err) {
         req.log.error({ err }, "google oauth callback failed");

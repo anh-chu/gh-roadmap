@@ -7,6 +7,7 @@ export type GhIssue = {
   state: "open" | "closed";
   assignee: string | null;
   milestone: string | null;
+  milestone_due: string | null;
   labels: string[];
   updated_at: string;
   created_at: string | null;
@@ -86,7 +87,7 @@ type GqlIssueNode = {
   createdAt: string;
   closedAt: string | null;
   assignees: { nodes: { login: string }[] };
-  milestone: { title: string } | null;
+  milestone: { title: string; dueOn: string | null } | null;
   labels: { nodes: { name: string }[] };
   comments: {
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
@@ -123,7 +124,7 @@ const ISSUES_QUERY = /* GraphQL */ `
           createdAt
           closedAt
           assignees(first: 1) { nodes { login } }
-          milestone { title }
+          milestone { title dueOn }
           labels(first: 30) { nodes { name } }
           comments(first: 50) {
             pageInfo { hasNextPage endCursor }
@@ -367,6 +368,7 @@ export async function fetchAllIssues(lastSyncAt?: string): Promise<{ issues: GhI
         state: n.state === "OPEN" ? "open" : "closed",
         assignee: n.assignees.nodes[0]?.login ?? null,
         milestone: n.milestone?.title ?? null,
+        milestone_due: n.milestone?.dueOn ?? null,
         labels: n.labels.nodes.map((l) => l.name),
         updated_at: n.updatedAt,
         created_at: n.createdAt,
@@ -456,6 +458,22 @@ export async function listRepoMilestones(): Promise<string[]> {
   return [...new Set(out)].sort();
 }
 
+// Full repo milestone set with due dates, for the milestone_due reconcile pass.
+export async function listRepoMilestonesWithDue(): Promise<
+  { title: string; due_on: string | null }[]
+> {
+  const out: { title: string; due_on: string | null }[] = [];
+  const iter = octo().paginate.iterator(octo().rest.issues.listMilestones, {
+    owner: _owner,
+    repo: _repo,
+    state: "all",
+    per_page: 100,
+  });
+  for await (const { data } of iter)
+    for (const m of data) out.push({ title: m.title, due_on: m.due_on ?? null });
+  return out;
+}
+
 async function resolveMilestoneNumber(title: string): Promise<number | null> {
   // GH milestone API takes a number, not a title. Look up by title across open + closed.
   for (const state of ["open", "closed"] as const) {
@@ -499,6 +517,7 @@ export async function updateIssue(num: number, patch: IssuePatch): Promise<GhIss
     state: data.state === "open" ? "open" : "closed",
     assignee: data.assignee?.login ?? null,
     milestone: data.milestone?.title ?? null,
+    milestone_due: data.milestone?.due_on ?? null,
     labels: (data.labels ?? []).map((l) => (typeof l === "string" ? l : l.name ?? "")).filter(Boolean),
     updated_at: data.updated_at,
     created_at: data.created_at ?? null,
@@ -532,6 +551,7 @@ export async function createIssue(input: IssueCreate): Promise<GhIssue> {
     state: data.state === "open" ? "open" : "closed",
     assignee: data.assignee?.login ?? null,
     milestone: data.milestone?.title ?? null,
+    milestone_due: data.milestone?.due_on ?? null,
     labels: (data.labels ?? []).map((l) => (typeof l === "string" ? l : l.name ?? "")).filter(Boolean),
     updated_at: data.updated_at,
     created_at: data.created_at ?? null,

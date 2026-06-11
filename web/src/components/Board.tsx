@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import type { CSSProperties, DragEvent } from "react";
-import type { BucketsInfo, FlowResult, Issue, WorkspaceConfig } from "../../../shared/types";
+import type { BucketsInfo, FlowResult, Issue, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import type { BucketChange, MoveTarget } from "../hooks/useIssues";
 import { Card } from "./Card";
 import {
@@ -85,9 +85,10 @@ interface CellProps {
   onDrop: (num: number, colKey: string) => void;
   flow: Map<number, FlowResult>;
   insightCounts?: Record<number, number>;
+  granularity: RangeGranularity;
 }
 
-function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts }: CellProps): JSX.Element {
+function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, granularity }: CellProps): JSX.Element {
   const isBL = colKey === "backlog";
   const isTD = colKey === "todo";
   const cls =
@@ -120,7 +121,7 @@ function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightC
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
     >
-      {cards.map((c) => <Card key={c.num} issue={c} onOpen={onOpen} flowResult={flow.get(c.num)} insightCount={insightCounts?.[c.num] ?? 0} />)}
+      {cards.map((c) => <Card key={c.num} issue={c} onOpen={onOpen} flowResult={flow.get(c.num)} insightCount={insightCounts?.[c.num] ?? 0} granularity={granularity} />)}
     </div>
   );
 }
@@ -217,6 +218,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
           onDrop={handleDrop(bucket)}
           flow={flow}
           insightCounts={insightCounts}
+          granularity={granularity}
         />
       );
     });

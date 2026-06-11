@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ApiComment, FlowResult, Issue, Pull } from "../../../shared/types";
+import type { MoveTarget } from "../hooks/useIssues";
+import { driftState, milestoneColumnKey, planPrecision } from "../lib/timeRange";
 import {
   deleteComment as apiDeleteComment,
   getComments,
@@ -9,6 +11,7 @@ import {
   postComment,
 } from "../lib/api";
 import { FlowPill } from "./FlowPill";
+import { canEdit } from "../lib/role";
 import { AiBlock } from "./AiBlock";
 import { EffortChip } from "./EffortChip";
 import { useIssueSummary } from "../hooks/useIssueSummary";
@@ -135,6 +138,7 @@ interface DrawerProps {
   onStateToggle: (num: number) => void;
   onAssignee: (num: number, a: string) => void;
   onMonth: (num: number, m: string | null) => void;
+  onMove: (num: number, target: MoveTarget) => void;
   onBody: (num: number, body: string) => void;
   onLabels: (num: number, labels: string[]) => void;
   onMilestone: (num: number, m: string | null) => void;
@@ -157,8 +161,10 @@ interface PendingDelete {
 }
 
 export function Drawer(props: DrawerProps): JSX.Element {
-  const { issue, currentUser, knownAssignees, knownLabels, knownMilestones, linkedPulls, flowResult, issuesByNum, repoSlug, onClose, onTitle, onStateToggle, onAssignee, onMonth, onBody, onLabels, onMilestone, onOpenAnother, onOpenAccount, onToast } = props;
+  const { issue, currentUser, knownAssignees, knownLabels, knownMilestones, linkedPulls, flowResult, issuesByNum, repoSlug, onClose, onTitle, onStateToggle, onAssignee, onMonth, onMove, onBody, onLabels, onMilestone, onOpenAnother, onOpenAccount, onToast } = props;
   const monthOpts = buildMonthOpts();
+  // Viewer = read-only: edit affordances are hidden, not rendered dead (see lib/role.ts).
+  const editable = canEdit();
   const assigneeOpts = Array.from(
     new Set([currentUser, ...knownAssignees].filter((x): x is string => Boolean(x))),
   );
@@ -348,8 +354,8 @@ export function Drawer(props: DrawerProps): JSX.Element {
                   <span className="d-num">#{issue.num}</span>
                 )}
                 <span
-                  className={"d-state editable" + (issue.state === "closed" ? " closed" : "")}
-                  onClick={() => onStateToggle(issue.num)}
+                  className={"d-state" + (editable ? " editable" : "") + (issue.state === "closed" ? " closed" : "")}
+                  onClick={editable ? () => onStateToggle(issue.num) : undefined}
                 >
                   {issue.state}
                 </span>
@@ -405,11 +411,11 @@ export function Drawer(props: DrawerProps): JSX.Element {
                 </h2>
               ) : (
                 <h2
-                  className="d-title editable"
-                  onClick={() => {
+                  className={"d-title" + (editable ? " editable" : "")}
+                  onClick={editable ? () => {
                     setTitleDraft(issue.title);
                     setEditingTitle(true);
-                  }}
+                  } : undefined}
                 >
                   {issue.title}
                 </h2>
@@ -418,13 +424,13 @@ export function Drawer(props: DrawerProps): JSX.Element {
                 <dt>Assignee</dt>
                 <dd>
                   <span
-                    className="editable-dd"
-                    onClick={(e) =>
+                    className={editable ? "editable-dd" : undefined}
+                    onClick={editable ? (e) =>
                       openDD(e, assigneeOpts.map((a) => ({ label: a, val: a })), (v) => {
                         if (v) onAssignee(issue.num, v);
                         setDd(null);
                       })
-                    }
+                    : undefined}
                   >
                     <span className="lbl-mini">@</span>{issue.assignee}
                   </span>
@@ -436,13 +442,15 @@ export function Drawer(props: DrawerProps): JSX.Element {
                   {issue.labels.map((l) => (
                     <span key={l} className="d-label-chip">
                       {l}
-                      <button
-                        className="d-label-x"
-                        title="Remove label"
-                        onClick={() => onLabels(issue.num, issue.labels.filter((x) => x !== l))}
-                      >
-                        ×
-                      </button>
+                      {editable && (
+                        <button
+                          className="d-label-x"
+                          title="Remove label"
+                          onClick={() => onLabels(issue.num, issue.labels.filter((x) => x !== l))}
+                        >
+                          ×
+                        </button>
+                      )}
                     </span>
                   ))}
                   {addingLabel ? (
@@ -479,17 +487,17 @@ export function Drawer(props: DrawerProps): JSX.Element {
                           ))}
                       </datalist>
                     </>
-                  ) : (
+                  ) : editable ? (
                     <span className="editable-dd d-label-add" onClick={() => setAddingLabel(true)}>
                       + label
                     </span>
-                  )}
+                  ) : null}
                 </dd>
                 <dt>Milestone</dt>
                 <dd>
                   <span
-                    className="editable-dd"
-                    onClick={(e) =>
+                    className={editable ? "editable-dd" : undefined}
+                    onClick={editable ? (e) =>
                       openDD(
                         e,
                         [
@@ -501,7 +509,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
                           setDd(null);
                         },
                       )
-                    }
+                    : undefined}
                   >
                     {issue.milestone ?? "none"}
                   </span>
@@ -509,8 +517,8 @@ export function Drawer(props: DrawerProps): JSX.Element {
                 <dt>Planned</dt>
                 <dd>
                   <span
-                    className="editable-dd"
-                    onClick={(e) =>
+                    className={editable ? "editable-dd" : undefined}
+                    onClick={editable ? (e) =>
                       openDD(
                         e,
                         monthOpts.map((m) => ({ label: m.label, val: m.key })),
@@ -519,12 +527,31 @@ export function Drawer(props: DrawerProps): JSX.Element {
                           setDd(null);
                         },
                       )
-                    }
+                    : undefined}
                   >
                     {issue.month
                       ? monthOpts.find((m) => m.key === issue.month)?.label ?? issue.month
                       : "Backlog"}
                   </span>
+                  {/* Snap is a roadmap mutation — viewers see the drift, not the button. */}
+                  {editable && driftState(issue) === "drift" && (() => {
+                    // Snap at the issue's own planning precision: week-planned → set plannedWeek.
+                    const precision = planPrecision(issue);
+                    if (!precision) return null;
+                    const col = milestoneColumnKey(issue.milestoneDue, precision);
+                    if (!col) return null;
+                    const target: MoveTarget =
+                      precision === "week" ? { kind: "week", value: col } : { kind: "month", value: col };
+                    return (
+                      <button
+                        className="d-snap-milestone"
+                        title={`Plan disagrees with milestone due date — move plan to ${col}`}
+                        onClick={() => onMove(issue.num, target)}
+                      >
+                        ⚠ Snap to milestone ({col})
+                      </button>
+                    );
+                  })()}
                 </dd>
                 <dt>Updated</dt><dd>{formatRelative(issue.updatedAt)}</dd>
                 {(issue.effort ?? metaSummary?.effort) && (
@@ -589,7 +616,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
               )}
               <div className="d-desc-head">
                 <h4>Description</h4>
-                {!editingBody && (
+                {editable && !editingBody && (
                   <button
                     className="d-desc-edit"
                     onClick={() => {
@@ -673,7 +700,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
                         <div className="head">
                           <span className="who">{c.author ?? "unknown"}</span>
                           <span className="when">{formatRelative(c.created_at)}</span>
-                          {mine && !editing && (
+                          {editable && mine && !editing && (
                             <span className="c-actions">
                               <button
                                 className="c-action"
@@ -723,7 +750,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
                 </div>
               )}
             </div>
-            <div className="d-foot">
+            {editable && <div className="d-foot">
               <textarea
                 className="input"
                 placeholder="Leave a comment..."
@@ -737,7 +764,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
                 }}
               />
               <button onClick={() => void handleSend()}>Send</button>
-            </div>
+            </div>}
           </>
         )}
       </aside>

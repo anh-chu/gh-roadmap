@@ -3,7 +3,9 @@ import type { AuthUser, MetaResponse, WorkspaceConfig } from "../../../shared/ty
 import { ScopePill } from "./ScopePill";
 import { AiSettings } from "./AiSettings";
 import { DataSettings } from "./DataSettings";
+import { UserSettings } from "./UserSettings";
 import { UserMenu } from "./UserMenu";
+import { canEdit } from "../lib/role";
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "never";
@@ -54,16 +56,21 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
       </div>
 
       <div className="meta">
-        <button
-          type="button"
-          className={"item sync-item" + (syncing ? " syncing" : "")}
-          onClick={onSync}
-          disabled={syncing}
-          title="Sync now — pull latest from GitHub + insights"
-        >
-          <span className="dot"></span>
-          {syncing ? "Syncing…" : <>Synced <b>{synced}</b></>}
-        </button>
+        {/* Viewers see sync freshness but can't trigger a sync (a mutation). */}
+        {canEdit() ? (
+          <button
+            type="button"
+            className={"item sync-item" + (syncing ? " syncing" : "")}
+            onClick={onSync}
+            disabled={syncing}
+            title="Sync now — pull latest from GitHub + insights"
+          >
+            <span className="dot"></span>
+            {syncing ? "Syncing…" : <>Synced <b>{synced}</b></>}
+          </button>
+        ) : (
+          <span className="item"><span className="dot"></span>Synced <b>{synced}</b></span>
+        )}
         <span className="item">API budget <b>{budget}</b></span>
         <span className="item"><b>{open}</b> open · <b>{closed}</b> closed</span>
       </div>
@@ -82,7 +89,10 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         </button>
         {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />}
         {isAdmin && <DataSettings />}
-        <button className="btn primary" onClick={onNewIssue}><span>+ New issue</span></button>
+        {/* Users panel only makes sense with auth on (roles are dormant in localhost mode). */}
+        {isAdmin && authUser && <UserSettings />}
+        {/* Hidden for viewers — a viewer's write is never achievable (see lib/role.ts). */}
+        {canEdit() && <button className="btn primary" onClick={onNewIssue}><span>+ New issue</span></button>}
         <div className="avatars">
           {authUser ? (
             <UserMenu user={authUser} />

@@ -2,16 +2,19 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { FlowResult, Issue } from "../../../shared/types";
+import type { FlowResult, Issue, RangeGranularity } from "../../../shared/types";
 import { FlowPill } from "./FlowPill";
 import { resolveEffortChip } from "./EffortChip";
 import { useIssueSummary } from "../hooks/useIssueSummary";
+import { driftState, milestoneColumnKey, planPrecision } from "../lib/timeRange";
+import { canEdit } from "../lib/role";
 
 interface CardProps {
   issue: Issue;
   onOpen: (i: Issue) => void;
   flowResult?: FlowResult | undefined;
   insightCount?: number;
+  granularity?: RangeGranularity;
 }
 
 interface TooltipAnchor {
@@ -22,7 +25,7 @@ interface TooltipAnchor {
 const TOOLTIP_WIDTH = 360;
 const TOOLTIP_OFFSET = 8;
 
-export function Card({ issue, onOpen, flowResult, insightCount = 0 }: CardProps): JSX.Element {
+export function Card({ issue, onOpen, flowResult, insightCount = 0, granularity }: CardProps): JSX.Element {
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const timerRef = useRef<number | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -99,11 +102,20 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0 }: CardProps)
   const { summary } = useIssueSummary(issue.num);
   const initial = (issue.assignee || "?")[0] ?? "?";
 
+  // Milestone-vs-plan drift: warn chip on actual drift; a faint notice when an issue
+  // is planned but has no milestone at all (undated milestones show nothing — never claim "no milestone" when one exists).
+  const dState = granularity !== undefined ? driftState(issue) : null;
+  const drifted = dState === "drift";
+  const precision = drifted ? planPrecision(issue) : null;
+  const milestoneCol = precision ? milestoneColumnKey(issue.milestoneDue, precision) : null;
+  // Chip only when the milestone is truly absent — a milestone present but undated shows nothing.
+  const unanchored = dState === "unanchored" && !issue.milestone && issue.state !== "closed";
+
   return (
     <div
       ref={cardRef}
       className="card"
-      draggable
+      draggable={canEdit()} /* viewers can't move issues — drag disabled at the source */
       data-num={issue.num}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -127,6 +139,21 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0 }: CardProps)
             <span className="com card-insight-chip" title={`${insightCount} insight${insightCount === 1 ? "" : "s"}`}>
               <span aria-hidden>📎</span>
               {insightCount}
+            </span>
+          ) : null}
+          {milestoneCol ? (
+            <span className="com card-drift-chip" title={`Milestone "${issue.milestone ?? ""}" due ${milestoneCol} — plan disagrees`}>
+              <span aria-hidden>⚠</span>
+              {milestoneCol}
+            </span>
+          ) : null}
+          {unanchored ? (
+            <span
+              className="com card-unanchored-chip"
+              title="Planned, but no milestone"
+            >
+              <span aria-hidden>⚠</span>
+              no milestone
             </span>
           ) : null}
           {issue.comments ? (

@@ -80,8 +80,17 @@ All config is env vars (see `.env.example` for the annotated list). Highlights:
   every request is a local admin. The original localhost pattern.
 - **Team (Google OAuth).** Set both client vars to gate the whole app behind "Sign in with Google".
   Register `<app-origin>/api/auth/callback` as the redirect URI. `ALLOWED_EMAIL_DOMAIN` restricts
-  sign-in to one domain; `ADMIN_EMAILS` (comma-separated) gates AI-settings + workspace
-  export/import to named admins (blank = every signed-in user is an admin).
+  sign-in to one domain. `ADMIN_EMAILS` (comma-separated) is the **immutable bootstrap-admin
+  list** — always admins, never demotable in-app (blank = every signed-in user is an admin).
+
+### Roles (team mode)
+
+Three roles: **viewer** (read-only — every non-GET request 403s, except logout and insight
+capture), **editor** (all app writes), **admin** (editor + user roles + AI settings +
+export/import). Newly signed-in users default to **viewer**; an admin promotes them via the
+header **Users** panel (`GET /api/users`, `PATCH /api/users/:email/role`). With auth off the
+role system is dormant — the local user is admin. Viewer write affordances are hidden in the
+UI; the server enforces regardless.
 
 ### GitHub auth: App vs PAT
 

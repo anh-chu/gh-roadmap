@@ -70,7 +70,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       version: "0.2.0",
       summary: "Local PM roadmap API for issues, planning metadata, insights, accounts, AI reads, health, and sync actions.",
       description: [
-        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings) return 403 for non-admins.",
+        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings, user roles) return 403 for non-admins. Roles: viewer / editor / admin — viewers get 403 on any non-GET/HEAD endpoint except /api/auth/* and /api/insights/capture.",
         "",
         "**Scoping.** GET reads are filtered by the workspace master filter (label include/exclude lists, default `include: [pod:mht]`). Write endpoints are intentionally NOT filtered.",
         "",
@@ -116,6 +116,37 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         post: op("auth", "authLogout", "Clear the session cookie.", {
           "x-side-effects": true,
           responses: ok({ type: "object", properties: { ok: { type: "boolean" } } }),
+        }),
+      },
+      "/api/users": {
+        get: op("auth", "listUsers", "List signed-in users and their roles (admin-only). Roles: viewer (read-only), editor (all app writes), admin (editor + roles + AI settings + export/import). ADMIN_EMAILS is the immutable bootstrap-admin list.", {
+          responses: ok({ type: "array", items: { $ref: "#/components/schemas/AppUser" } }),
+        }),
+        post: op("auth", "createUser", "Pre-provision a user before their first sign-in (admin-only). Upserts by lowercase email with the given role; login later preserves the pre-set role. Rejected for ADMIN_EMAILS members (immutable bootstrap admins).", {
+          "x-side-effects": true,
+          requestBody: body({
+            type: "object",
+            required: ["email", "role"],
+            properties: {
+              email: { type: "string" },
+              role: { type: "string", enum: ["viewer", "editor", "admin"] },
+            },
+            additionalProperties: false,
+          }),
+          responses: { "201": { description: "Created/updated user", content: { "application/json": { schema: { $ref: "#/components/schemas/AppUser" } } } } },
+        }),
+      },
+      "/api/users/{email}/role": {
+        patch: op("auth", "setUserRole", "Set a user's role (admin-only). Rejected for ADMIN_EMAILS members (immutable bootstrap admins) and for demoting the last admin.", {
+          "x-side-effects": true,
+          parameters: [{ name: "email", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: body({
+            type: "object",
+            required: ["role"],
+            properties: { role: { type: "string", enum: ["viewer", "editor", "admin"] } },
+            additionalProperties: false,
+          }),
+          responses: ok({ type: "object", properties: { email: { type: "string" }, role: { type: "string" } } }),
         }),
       },
       "/api/openapi.json": {
@@ -532,6 +563,7 @@ const components: Record<string, JsonSchema> = {
     properties: {
       number: { type: "integer" }, title: { type: "string" }, body: nullableString,
       state: stringEnum(["open", "closed"]), assignee: nullableString, milestone: nullableString,
+      milestoneDue: { ...nullableString, description: "GitHub milestone due_on (ISO date-time), read-only mirror" },
       labels: { type: "array", items: { type: "string" } }, updatedAt: { type: "string" },
       plannedMonth: nullableString, plannedWeek: nullableString, roadmapNotes: nullableString,
       position: { type: ["integer", "null"] }, isTodo: { type: "boolean" },
@@ -613,11 +645,24 @@ const components: Record<string, JsonSchema> = {
           email: { type: "string" },
           name: { type: "string" },
           picture: { type: ["string", "null"] },
+          role: { type: "string", enum: ["viewer", "editor", "admin"] },
           isAdmin: { type: "boolean" },
         },
       },
     },
     required: ["authEnabled", "user"],
+  },
+  AppUser: {
+    type: "object",
+    properties: {
+      email: { type: "string" },
+      name: { type: ["string", "null"] },
+      role: { type: "string", enum: ["viewer", "editor", "admin"] },
+      envAdmin: { type: "boolean", description: "In ADMIN_EMAILS — immutable bootstrap admin, role not editable." },
+      createdAt: { type: "string" },
+      updatedAt: { type: "string" },
+    },
+    required: ["email", "name", "role", "envAdmin", "createdAt", "updatedAt"],
   },
   CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "string" } } }, required: ["labels", "milestones"] },
   WorkspaceConfig: { type: "object", additionalProperties: true },

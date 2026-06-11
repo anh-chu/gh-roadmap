@@ -1,5 +1,6 @@
 import { App } from "../App";
 import { useAuth } from "../hooks/useAuth";
+import { setSessionRole } from "../lib/role";
 import { LoginScreen } from "./LoginScreen";
 
 // Wraps the app: when Google OAuth is enabled and there's no session, show the login screen.
@@ -17,5 +18,8 @@ export function AuthGate(): JSX.Element {
 
   if (me.authEnabled && !me.user) return <LoginScreen />;
 
+  // Set before App mounts so every component's canEdit() reads the right role.
+  // No-auth localhost mode (user null) = local admin, role system dormant.
+  setSessionRole(me.user?.role ?? "admin");
   return <App authUser={me.user} />;
 }

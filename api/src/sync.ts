@@ -5,6 +5,7 @@ import {
   fetchAllIssues,
   fetchAllPulls,
   fetchIssueTimelineSince,
+  listRepoMilestonesWithDue,
   type GhComment,
   type GhIssue,
   type GhPull,
@@ -20,11 +21,12 @@ let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 export function upsertIssue(i: GhIssue): void {
   db()
     .prepare(
-      `INSERT INTO issues(number,title,body,state,assignee,milestone,labels,updated_at,created_at,closed_at,raw)
-       VALUES(@number,@title,@body,@state,@assignee,@milestone,@labels,@updated_at,@created_at,@closed_at,@raw)
+      `INSERT INTO issues(number,title,body,state,assignee,milestone,milestone_due,labels,updated_at,created_at,closed_at,raw)
+       VALUES(@number,@title,@body,@state,@assignee,@milestone,@milestone_due,@labels,@updated_at,@created_at,@closed_at,@raw)
        ON CONFLICT(number) DO UPDATE SET
          title=excluded.title, body=excluded.body, state=excluded.state,
          assignee=excluded.assignee, milestone=excluded.milestone,
+         milestone_due=excluded.milestone_due,
          labels=excluded.labels, updated_at=excluded.updated_at,
          created_at=COALESCE(excluded.created_at, issues.created_at),
          closed_at=excluded.closed_at,
@@ -37,6 +39,7 @@ export function upsertIssue(i: GhIssue): void {
       state: i.state,
       assignee: i.assignee,
       milestone: i.milestone,
+      milestone_due: i.milestone_due,
       labels: JSON.stringify(i.labels),
       updated_at: i.updated_at,
       created_at: i.created_at,
@@ -202,6 +205,23 @@ export async function reconcile(): Promise<{
     for (const e of allEvents) upsertIssueEvent(e);
   });
   tx();
+
+  // Milestone due-date reconcile: issue rows only refresh milestone_due when the
+  // issue itself changes upstream, so a milestone's due_on edit (or a freshly
+  // added column) leaves stale/null values. One cheap REST call aligns all rows.
+  try {
+    const milestones = await listRepoMilestonesWithDue();
+    const align = db().prepare(
+      "UPDATE issues SET milestone_due = ? WHERE milestone = ? AND milestone_due IS NOT ?",
+    );
+    const mtx = db().transaction(() => {
+      for (const m of milestones) align.run(m.due_on, m.title, m.due_on);
+    });
+    mtx();
+  } catch (err) {
+    console.error("milestone due reconcile failed", err);
+  }
+
   setKv("lastSyncAt", new Date().toISOString());
   return {
     issues: issues.length,
@@ -259,7 +279,7 @@ type WebhookIssuePayload = {
     body: string | null;
     state: "open" | "closed";
     assignee: { login: string } | null;
-    milestone: { title: string } | null;
+    milestone: { title: string; due_on?: string | null } | null;
     labels: { name: string }[];
     updated_at: string;
     created_at?: string;
@@ -349,6 +369,7 @@ export function handleWebhook(event: string, payload: unknown): void {
       state: p.issue.state,
       assignee: p.issue.assignee?.login ?? null,
       milestone: p.issue.milestone?.title ?? null,
+      milestone_due: p.issue.milestone?.due_on ?? null,
       labels: p.issue.labels.map((l) => l.name),
       updated_at: p.issue.updated_at,
       created_at: p.issue.created_at ?? null,

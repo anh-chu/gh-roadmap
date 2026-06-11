@@ -9,11 +9,15 @@
 // Binding each user to their own GitHub credential is a later phase.
 import crypto from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { Role } from "../../shared/types.js";
+import { getUser } from "./db.js";
 
 export interface SessionUser {
   email: string;
   name: string;
   picture: string | null;
+  role: Role;
+  // Derived: role === "admin". Kept so existing admin gating (AI settings, export/import) is untouched.
   isAdmin: boolean;
 }
 
@@ -45,13 +49,27 @@ export function authEnabled(): boolean {
   return CLIENT_ID.length > 0 && CLIENT_SECRET.length > 0;
 }
 
-// When auth is off (local single-user), everyone is a local admin.
-const LOCAL_USER: SessionUser = { email: "local", name: "Local", picture: null, isAdmin: true };
+// When auth is off (local single-user), everyone is a local admin — the role system is dormant.
+const LOCAL_USER: SessionUser = { email: "local", name: "Local", picture: null, role: "admin", isAdmin: true };
 
-export function isAdminEmail(email: string): boolean {
-  // No ADMIN_EMAILS configured → every signed-in user is an admin (small team default).
-  if (ADMIN_EMAILS.size === 0) return true;
+// True only for exact ADMIN_EMAILS membership — the immutable bootstrap-admin list.
+// (Distinct from roleFor's empty-list default, which keeps the small-team behaviour.)
+export function isEnvAdmin(email: string): boolean {
   return ADMIN_EMAILS.has(email.toLowerCase());
+}
+
+export function envAdminsConfigured(): boolean {
+  return ADMIN_EMAILS.size > 0;
+}
+
+// Role resolution: env bootstrap admins → admin; otherwise the users-table role set by an
+// admin in-app; otherwise viewer (default for any newly signed-in user).
+export function roleFor(email: string): Role {
+  // No ADMIN_EMAILS configured → every signed-in user is an admin (small team default, pre-roles behaviour).
+  if (ADMIN_EMAILS.size === 0) return "admin";
+  const lower = email.toLowerCase();
+  if (ADMIN_EMAILS.has(lower)) return "admin";
+  return getUser(lower)?.role ?? "viewer";
 }
 
 export function emailAllowed(email: string): boolean {
@@ -65,7 +83,7 @@ function sign(payload: string): string {
   return crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
 }
 
-function makeSession(user: Omit<SessionUser, "isAdmin">): string {
+function makeSession(user: Omit<SessionUser, "isAdmin" | "role">): string {
   const body = { email: user.email, name: user.name, picture: user.picture, exp: Date.now() + SESSION_TTL_MS };
   const payload = Buffer.from(JSON.stringify(body)).toString("base64url");
   return `${payload}.${sign(payload)}`;
@@ -85,7 +103,9 @@ function readSession(token: string | undefined): SessionUser | null {
       email: string; name: string; picture: string | null; exp: number;
     };
     if (typeof body.exp !== "number" || body.exp < Date.now()) return null;
-    return { email: body.email, name: body.name, picture: body.picture ?? null, isAdmin: isAdminEmail(body.email) };
+    // Role is resolved fresh on every request (env list + users table), never baked into the cookie.
+    const role = roleFor(body.email);
+    return { email: body.email, name: body.name, picture: body.picture ?? null, role, isAdmin: role === "admin" };
   } catch {
     return null;
   }
@@ -103,7 +123,7 @@ export function userFromRequest(req: FastifyRequest): SessionUser | null {
   return readSession(req.cookies?.[COOKIE_NAME]);
 }
 
-export function setSessionCookie(req: FastifyRequest, reply: FastifyReply, user: Omit<SessionUser, "isAdmin">): void {
+export function setSessionCookie(req: FastifyRequest, reply: FastifyReply, user: Omit<SessionUser, "isAdmin" | "role">): void {
   reply.setCookie(COOKIE_NAME, makeSession(user), {
     httpOnly: true,
     sameSite: "lax",

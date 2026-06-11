@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BucketingField, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import { buildColumns } from "../lib/timeRange";
+import { canEdit } from "../lib/role";
 
 export type FilterKey = "all" | "mine";
 export type TabKey = "roadmap" | "list" | "kanban" | "insights" | "accounts" | "progress";
@@ -91,7 +92,8 @@ function GroupByDropdown({ config, onChange }: GroupByDropdownProps): JSX.Elemen
 
   return (
     <div className="groupby" ref={rootRef}>
-      <button className="btn groupby-trigger" onClick={() => setOpen((o) => !o)}>
+      {/* Writes shared workspace config — viewers see the value, can't open the editor. */}
+      <button className="btn groupby-trigger" onClick={() => canEdit() && setOpen((o) => !o)}>
         Group by: <b>{groupByLabel(config)}</b>
         <svg className="icon" viewBox="0 0 12 12" width="10" height="10" aria-hidden>
           <path d="M2.5 4.5 L6 8 L9.5 4.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
@@ -177,7 +179,8 @@ function RangeControl({ config, onChange }: RangeControlProps): JSX.Element {
 
   return (
     <div className="range-control" ref={rootRef}>
-      <button className="btn groupby-trigger" onClick={() => setOpen((o) => !o)}>
+      {/* Writes shared workspace config — viewers see the value, can't open the editor. */}
+      <button className="btn groupby-trigger" onClick={() => canEdit() && setOpen((o) => !o)}>
         View: <b>{triggerLabel}</b>
         <svg className="icon" viewBox="0 0 12 12" width="10" height="10" aria-hidden>
           <path d="M2.5 4.5 L6 8 L9.5 4.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>

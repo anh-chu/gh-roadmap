@@ -212,7 +212,14 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
             isTodo: rp.isTodo,
           });
         }
-        if (issuePatch) await patchIssue(num, issuePatch);
+        if (issuePatch) {
+          const updated = await patchIssue(num, issuePatch);
+          // A milestone reassign changes milestoneDue (server-only field) — sync it
+          // so the drift chip recomputes without a reload.
+          if (issuePatch.milestone !== undefined) {
+            dispatch({ type: "replace", num, patch: { milestoneDue: updated.milestoneDue } });
+          }
+        }
         return true;
       } catch (e) {
         dispatch({ type: "replace", num, patch: backward });
@@ -301,9 +308,20 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
     async (num: number, milestone: string | null): Promise<boolean> => {
       const prev = state.issues.find((i) => i.num === num);
       if (!prev) return false;
-      return failOrRevert(num, { milestone }, { milestone: prev.milestone }, () => patchIssue(num, { milestone }));
+      dispatch({ type: "replace", num, patch: { milestone } });
+      try {
+        // milestoneDue only exists server-side — apply it from the response so
+        // drift recomputes immediately instead of waiting for a full refetch.
+        const updated = await patchIssue(num, { milestone });
+        dispatch({ type: "replace", num, patch: { milestoneDue: updated.milestoneDue } });
+        return true;
+      } catch (e) {
+        dispatch({ type: "replace", num, patch: { milestone: prev.milestone } });
+        onError(e instanceof Error ? `Failed: ${e.message}` : "Failed");
+        return false;
+      }
     },
-    [state.issues, failOrRevert],
+    [state.issues, onError],
   );
 
   const sendComment = useCallback(
@@ -332,6 +350,7 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
         state: "open",
         assignee: payload.assignee ?? "unassigned",
         milestone: null,
+        milestoneDue: null,
         comments: 0,
         labels: payload.labels ?? [],
         updatedAt: new Date().toISOString(),
