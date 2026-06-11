@@ -94,7 +94,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     return rows.map(rowToJson);
   });
 
-  app.patch<{ Params: { num: string }; Body: IssuePatch }>(
+  app.patch<{ Params: { num: string }; Body: IssuePatch & { baseBody?: string | null } }>(
     "/api/issues/:num",
     {
       schema: {
@@ -108,6 +108,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
             labels: { type: "array", items: { type: "string" } },
             assignee: { type: ["string", "null"] },
             milestone: { type: ["string", "null"] },
+            baseBody: { type: ["string", "null"] },
           },
         },
       },
@@ -115,8 +116,25 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const num = Number(req.params.num);
       if (!Number.isFinite(num)) return reply.code(400).send({ error: "invalid issue number" });
+
+      // Optimistic concurrency on the body field: if the caller is editing the body
+      // and tells us the version it started from, reject when the stored body has
+      // since diverged (another teammate saved first). Content-based, not timestamp-based,
+      // so routine sync churn (comments, label/state changes) never triggers a false 409.
+      const { baseBody, ...patch } = req.body;
+      if (patch.body !== undefined && baseBody !== undefined) {
+        const cur = db().prepare("SELECT body FROM issues WHERE number = ?").get(num) as
+          | { body: string | null }
+          | undefined;
+        if (cur && (cur.body ?? "") !== (baseBody ?? "")) {
+          return reply.code(409).send({
+            error: "conflict",
+            detail: "This issue's description was changed by someone else. Reload to see the latest before editing.",
+          });
+        }
+      }
       try {
-        const updated = await updateIssue(num, req.body);
+        const updated = await updateIssue(num, patch);
         upsertIssue(updated);
         const row = db()
           .prepare(

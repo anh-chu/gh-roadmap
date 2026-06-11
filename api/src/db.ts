@@ -55,6 +55,9 @@ export function initDb(path: string): Database.Database {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // Multi-user shared instance: WAL lets readers not block the single writer; the
+  // busy_timeout makes a concurrent writer wait briefly instead of throwing SQLITE_BUSY.
+  db.pragma("busy_timeout = 5000");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS issues (

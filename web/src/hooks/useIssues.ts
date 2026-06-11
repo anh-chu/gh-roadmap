@@ -108,6 +108,20 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
     void refresh();
   }, [refresh]);
 
+  // Shared instance: another teammate's edits won't push to this client. Refetch when
+  // the tab regains focus so a returning user sees current data instead of a stale board.
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [refresh]);
+
   const failOrRevert = useCallback(
     async (num: number, forward: Partial<Issue>, backward: Partial<Issue>, op: () => Promise<unknown>): Promise<boolean> => {
       dispatch({ type: "replace", num, patch: forward });
@@ -249,9 +263,21 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
     async (num: number, body: string): Promise<boolean> => {
       const prev = state.issues.find((i) => i.num === num);
       if (!prev) return false;
-      return failOrRevert(num, { body }, { body: prev.body }, () => patchIssue(num, { body }));
+      dispatch({ type: "replace", num, patch: { body } });
+      try {
+        // Send the version we started from so the server can reject a stale overwrite.
+        await patchIssue(num, { body, baseBody: prev.body });
+        return true;
+      } catch (e) {
+        dispatch({ type: "replace", num, patch: { body: prev.body } });
+        const msg = e instanceof Error ? e.message : "Failed";
+        onError(`Failed: ${msg}`);
+        // On a 409 the local copy is stale — pull the latest so the editor shows the winning version.
+        if (msg.startsWith("409")) void refresh();
+        return false;
+      }
     },
-    [state.issues, failOrRevert],
+    [state.issues, onError, refresh],
   );
 
   const setLabels = useCallback(

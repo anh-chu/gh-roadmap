@@ -133,6 +133,10 @@ export interface IssuePatchBody {
   labels?: string[];
   assignee?: string | null;
   milestone?: string | null;
+  // Optimistic-concurrency guard for body edits on a shared instance. When set,
+  // the server rejects the body write with 409 if the stored body no longer
+  // matches what the editor loaded (someone else edited it first).
+  baseBody?: string | null;
 }
 
 export interface RoadmapPatchBody {
