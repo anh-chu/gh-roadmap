@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { MetaResponse, WorkspaceConfig } from "../../../shared/types";
 import { ScopePill } from "./ScopePill";
 import { AiSettings } from "./AiSettings";
+import { DataSettings } from "./DataSettings";
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "never";
@@ -75,6 +76,7 @@ export function Header({ meta, config, onScopeChange, onAiChange, onOpenFilter, 
           <span className="kbd">F</span>
         </button>
         <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />
+        <DataSettings />
         <button className="btn primary" onClick={onNewIssue}><span>+ New issue</span></button>
         <div className="avatars">
           {userInitial ? (

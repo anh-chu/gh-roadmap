@@ -28,6 +28,7 @@ import { accountsRoutes } from "./routes/accounts.js";
 import { syncRoutes } from "./routes/sync.js";
 import { openapiRoutes } from "./routes/openapi.js";
 import { repoFileRoutes } from "./routes/repoFile.js";
+import { dataRoutes } from "./routes/data.js";
 import { reconcileInsights } from "./insights.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
   await app.register(accountsRoutes);
   await app.register(syncRoutes);
   await app.register(repoFileRoutes);
+  await app.register(dataRoutes);
   await app.register(openapiRoutes);
   await app.register(webhookRoutes, { secret: GITHUB_WEBHOOK_SECRET });
 

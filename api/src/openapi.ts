@@ -93,6 +93,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       { name: "projects", description: "GitHub Projects v2 board mirror." },
       { name: "config", description: "Workspace configuration and catalogs." },
       { name: "sync", description: "Manual reconciliation actions." },
+      { name: "data", description: "Full-workspace export / import (backup and restore)." },
     ],
     paths: {
       "/api/openapi.json": {
@@ -321,6 +322,42 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
             query("ref", "Branch, tag, or commit SHA. Defaults to the repo default branch."),
           ],
           responses: ok({ $ref: "#/components/schemas/RepoFile" }),
+        }),
+      },
+      "/api/export": {
+        get: op("data", "exportData", "Export the entire workspace database as one JSON file.", {
+          description:
+            "Dumps every user table (GitHub mirror, AI caches, and the app-only planning layer) as `{version, exportedAt, tables}`. Column-agnostic snapshot for backup or moving the workspace to another machine. Served with a download Content-Disposition.",
+          responses: ok({
+            type: "object",
+            properties: {
+              version: { type: "integer" },
+              exportedAt: { type: "string", format: "date-time" },
+              tables: { type: "object", additionalProperties: { type: "array", items: { type: "object", additionalProperties: true } } },
+            },
+          }),
+        }),
+      },
+      "/api/import": {
+        post: op("data", "importData", "Restore the workspace from an export file (replace-all).", {
+          description:
+            "Replace-all restore: each table present in the file is wiped and reloaded in one transaction. Unknown tables/columns are skipped; missing columns fall back to schema defaults. On any error the whole import rolls back. Body is the object produced by GET /api/export.",
+          requestBody: body({
+            type: "object",
+            required: ["tables"],
+            properties: {
+              version: { type: "integer" },
+              tables: { type: "object", additionalProperties: { type: "array", items: { type: "object", additionalProperties: true } } },
+            },
+          }),
+          responses: ok({
+            type: "object",
+            properties: {
+              imported: { type: "object", additionalProperties: { type: "integer" } },
+              skipped: { type: "array", items: { type: "string" } },
+            },
+          }),
+          "x-side-effects": true,
         }),
       },
       "/api/insight-accounts": {

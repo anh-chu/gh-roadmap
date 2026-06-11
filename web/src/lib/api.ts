@@ -86,6 +86,21 @@ export async function postSync(): Promise<SyncResult> {
   return jsonOrThrow<SyncResult>(r);
 }
 
+export interface ImportResult {
+  imported: Record<string, number>;
+  skipped: string[];
+}
+
+// Full-DB restore. The file is whatever GET /api/export produced. Replace-all per table.
+export async function importData(payload: unknown): Promise<ImportResult> {
+  const r = await fetch("/api/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return jsonOrThrow<ImportResult>(r);
+}
+
 export async function patchIssue(num: number, body: IssuePatchBody): Promise<ApiIssue> {
   const r = await fetch(`/api/issues/${num}`, {
     method: "PATCH",
