@@ -1,0 +1,65 @@
+name: build-and-push
+
+# Push side of the "polling main" deploy: a commit on main builds the arm64 image and pushes it to
+# ECR under the :release tag. The EC2 host never talks to GitHub — its systemd timer polls the ECR
+# :release digest every 5 min (deploy/check-and-deploy.sh) and redeploys when it changes. So this
+# workflow's only job is to push :release; the host pulls it.
+#
+# Required GitHub Actions *variables* (Settings -> Secrets and variables -> Actions -> Variables):
+#   AWS_DEPLOY_ROLE_ARN  arn:aws:iam::381492285841:role/<oidc-deploy-role>  (trust must allow this repo's sub)
+#   AWS_REGION           us-east-1            (optional; defaults below)
+#   ECR_REPOSITORY       gh-roadmap-prod      (optional; defaults below — matches terraform project_name)
+# No long-lived AWS keys: auth is OIDC via the role above.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-and-push
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'gh-roadmap-prod' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # GitHub-hosted runners are amd64; the EC2 host is Graviton (arm64). Build arm64 via QEMU so
+      # the image matches the host arch — an amd64 image would "exec format error" on t4g.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (arm64) to ECR :release
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:release
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
