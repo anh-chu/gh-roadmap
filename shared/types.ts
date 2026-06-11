@@ -80,6 +80,20 @@ export interface BucketsInfo {
   options: string[];
 }
 
+export interface AuthUser {
+  email: string;
+  name: string;
+  picture: string | null;
+  isAdmin: boolean;
+}
+
+export interface AuthMe {
+  // false when GOOGLE_CLIENT_ID/SECRET are unset — app runs in single-user localhost mode.
+  authEnabled: boolean;
+  // null when auth is enabled but the request has no valid session (show login screen).
+  user: AuthUser | null;
+}
+
 export interface MetaResponse {
   rateLimitRemaining: number;
   rateLimitLimit: number;

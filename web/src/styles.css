@@ -208,6 +208,11 @@ button.sync-item:disabled { cursor: default; }
   text-transform: uppercase;
   margin-left: -8px;
 }
+button.av {
+  padding: 0;
+  cursor: pointer;
+  box-sizing: border-box;
+}
 .avatars .av:nth-child(1) { background: #f5d6c6; color: #7c3a1e; margin-left: 0; }
 .avatars .av:nth-child(2) { background: #d9e6c6; color: #4a6b2b; }
 .avatars .av:nth-child(3) { background: #c6d8f5; color: #2b4a7b; }

@@ -337,6 +337,14 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       let nextAiModelSummary = current.aiModelSummary;
       let nextAiModelProgress = current.aiModelProgress;
       let nextAiModelExtract = current.aiModelExtract;
+      // AI model selection is an admin-only setting.
+      const touchesAi =
+        req.body.aiModelSummary !== undefined ||
+        req.body.aiModelProgress !== undefined ||
+        req.body.aiModelExtract !== undefined;
+      if (touchesAi && !req.user?.isAdmin) {
+        return reply.code(403).send({ error: "AI model settings are admin-only" });
+      }
       if (req.body.aiModelSummary !== undefined) {
         const r = normaliseModel(req.body.aiModelSummary);
         if (!r.ok) return reply.code(400).send({ error: `aiModelSummary: ${r.error}` });

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db.js";
+import { requireAdmin } from "../auth.js";
 
 // Full-database export/import. Single-user local tool: this is the "back up / move my
 // whole workspace" affordance. Export dumps every user table (including the GitHub mirror,
@@ -27,7 +28,7 @@ function tableColumns(table: string): string[] {
 }
 
 export async function dataRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/export", async (_req, reply) => {
+  app.get("/api/export", { preHandler: requireAdmin }, async (_req, reply) => {
     const tables: Record<string, unknown[]> = {};
     for (const t of userTables()) {
       tables[t] = db().prepare(`SELECT * FROM "${t}"`).all();
@@ -41,6 +42,7 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { version?: number; tables?: Record<string, unknown[]> } }>(
     "/api/import",
     {
+      preHandler: requireAdmin,
       bodyLimit: IMPORT_BODY_LIMIT,
       schema: {
         body: {

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
+import fastifyCookie from "@fastify/cookie";
 import middie from "@fastify/middie";
 import cors from "@fastify/cors";
 import { dirname, resolve } from "node:path";
@@ -30,6 +31,8 @@ import { openapiRoutes } from "./routes/openapi.js";
 import { repoFileRoutes } from "./routes/repoFile.js";
 import { dataRoutes } from "./routes/data.js";
 import { reconcileInsights } from "./insights.js";
+import { authRoutes } from "./routes/auth.js";
+import { authEnabled, userFromRequest } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -59,9 +62,31 @@ async function main(): Promise<void> {
   logResolvedModels((msg, meta) => app.log.info(meta ?? {}, msg));
 
   await app.register(cors, { origin: true });
+  await app.register(fastifyCookie);
+
+  if (authEnabled()) {
+    app.log.info("Google OAuth login enabled — app requires sign-in");
+  } else {
+    app.log.warn("auth disabled (GOOGLE_CLIENT_ID/SECRET unset) — single-user localhost mode");
+  }
+
+  // Resolve the user on every request and gate /api/* behind a session when auth is on.
+  // Public paths: the auth endpoints themselves (login/callback/me/logout). Everything else
+  // under /api requires a valid session. /webhook is HMAC-verified separately and stays open.
+  app.addHook("onRequest", async (req, reply) => {
+    const user = userFromRequest(req);
+    if (user) req.user = user;
+    if (!authEnabled()) return;
+
+    const url = req.url.split("?")[0] ?? "";
+    if (!url.startsWith("/api/")) return; // SPA + assets load so the login screen can render
+    if (url.startsWith("/api/auth/")) return; // login flow must be reachable while logged out
+    if (!user) return reply.code(401).send({ error: "authentication required" });
+  });
 
   // API routes mount first so anything under /api or /webhook is handled by Fastify;
   // the SPA (vite middleware in dev, static dist in prod) catches everything else.
+  await app.register(authRoutes);
   await app.register(issuesRoutes);
   await app.register(commentsRoutes);
   await app.register(metaRoutes);

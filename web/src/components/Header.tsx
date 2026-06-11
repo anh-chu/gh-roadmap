@@ -1,8 +1,9 @@
 import { useRef } from "react";
-import type { MetaResponse, WorkspaceConfig } from "../../../shared/types";
+import type { AuthUser, MetaResponse, WorkspaceConfig } from "../../../shared/types";
 import { ScopePill } from "./ScopePill";
 import { AiSettings } from "./AiSettings";
 import { DataSettings } from "./DataSettings";
+import { UserMenu } from "./UserMenu";
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "never";
@@ -20,6 +21,10 @@ function relativeTime(iso: string | null): string {
 interface HeaderProps {
   meta: MetaResponse | null;
   config: WorkspaceConfig;
+  // Signed-in Google user (null when auth is disabled / single-user localhost).
+  authUser: AuthUser | null;
+  // Gates admin-only controls (AI model settings + data export/import).
+  isAdmin: boolean;
   onScopeChange: (patch: { masterFilterInclude?: string[]; masterFilterExclude?: string[] }) => void;
   onAiChange: (patch: { aiModelSummary?: string | null; aiModelProgress?: string | null; aiModelExtract?: string | null }) => void;
   onOpenFilter: (rect: DOMRect) => void;
@@ -29,7 +34,7 @@ interface HeaderProps {
   syncing: boolean;
 }
 
-export function Header({ meta, config, onScopeChange, onAiChange, onOpenFilter, onNewIssue, filterActive, onSync, syncing }: HeaderProps): JSX.Element {
+export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiChange, onOpenFilter, onNewIssue, filterActive, onSync, syncing }: HeaderProps): JSX.Element {
   const filterBtnRef = useRef<HTMLButtonElement | null>(null);
   const open = meta ? String(meta.openCount) : "—";
   const closed = meta ? String(meta.closedCount) : "—";
@@ -75,11 +80,13 @@ export function Header({ meta, config, onScopeChange, onAiChange, onOpenFilter, 
           <span>Filter</span>
           <span className="kbd">F</span>
         </button>
-        <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />
-        <DataSettings />
+        {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />}
+        {isAdmin && <DataSettings />}
         <button className="btn primary" onClick={onNewIssue}><span>+ New issue</span></button>
         <div className="avatars">
-          {userInitial ? (
+          {authUser ? (
+            <UserMenu user={authUser} />
+          ) : userInitial ? (
             <span className="av" title={meta?.currentUser ?? ""}>{userInitial}</span>
           ) : (
             <span className="av" title="signed-in user unavailable">—</span>

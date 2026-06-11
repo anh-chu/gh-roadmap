@@ -8,6 +8,7 @@ import type {
   AccountProfilePatch,
   AccountIngestRow,
   AccountIngestResult,
+  AuthMe,
   ApiComment,
   ApiInsightAccount,
   ApiInsightDetail,
@@ -74,6 +75,15 @@ export async function fetchIssues(): Promise<ApiIssue[]> {
 export async function fetchMeta(): Promise<MetaResponse> {
   const r = await fetch("/api/meta");
   return jsonOrThrow<MetaResponse>(r);
+}
+
+export async function fetchAuthMe(): Promise<AuthMe> {
+  const r = await fetch("/api/auth/me");
+  return jsonOrThrow<AuthMe>(r);
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/auth/logout", { method: "POST" });
 }
 
 export async function fetchCatalog(): Promise<CatalogResponse> {

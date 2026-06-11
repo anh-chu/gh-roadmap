@@ -70,7 +70,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       version: "0.2.0",
       summary: "Local PM roadmap API for issues, planning metadata, insights, accounts, AI reads, health, and sync actions.",
       description: [
-        "No auth — localhost, single user. Safe to call freely from an agent.",
+        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings) return 403 for non-admins.",
         "",
         "**Scoping.** GET reads are filtered by the workspace master filter (label include/exclude lists, default `include: [pod:mht]`). Write endpoints are intentionally NOT filtered.",
         "",
@@ -94,8 +94,30 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       { name: "config", description: "Workspace configuration and catalogs." },
       { name: "sync", description: "Manual reconciliation actions." },
       { name: "data", description: "Full-workspace export / import (backup and restore)." },
+      { name: "auth", description: "Google OAuth login / session (only active when auth is enabled)." },
     ],
     paths: {
+      "/api/auth/me": {
+        get: op("auth", "getAuthMe", "Current session: whether auth is enabled and the signed-in user (null if logged out).", {
+          responses: ok({ $ref: "#/components/schemas/AuthMe" }),
+        }),
+      },
+      "/api/auth/login": {
+        get: op("auth", "authLogin", "Redirect to Google consent. No-op redirect to / when auth is disabled.", {
+          responses: { "302": { description: "Redirect to Google OAuth (or / when disabled)" } },
+        }),
+      },
+      "/api/auth/callback": {
+        get: op("auth", "authCallback", "Google OAuth callback — sets the session cookie and redirects to /.", {
+          responses: { "302": { description: "Redirect to / (with ?auth_error=… on failure)" } },
+        }),
+      },
+      "/api/auth/logout": {
+        post: op("auth", "authLogout", "Clear the session cookie.", {
+          "x-side-effects": true,
+          responses: ok({ type: "object", properties: { ok: { type: "boolean" } } }),
+        }),
+      },
       "/api/openapi.json": {
         get: op("config", "getOpenApiJson", "Read this OpenAPI definition as JSON.", {
           responses: ok({ type: "object", additionalProperties: true }),
@@ -581,6 +603,22 @@ const components: Record<string, JsonSchema> = {
   },
   HealthSnapshot: { type: "object", additionalProperties: true },
   MetaResponse: { type: "object", additionalProperties: true },
+  AuthMe: {
+    type: "object",
+    properties: {
+      authEnabled: { type: "boolean" },
+      user: {
+        type: ["object", "null"],
+        properties: {
+          email: { type: "string" },
+          name: { type: "string" },
+          picture: { type: ["string", "null"] },
+          isAdmin: { type: "boolean" },
+        },
+      },
+    },
+    required: ["authEnabled", "user"],
+  },
   CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "string" } } }, required: ["labels", "milestones"] },
   WorkspaceConfig: { type: "object", additionalProperties: true },
   WorkspaceConfigPatch: { type: "object", additionalProperties: true },

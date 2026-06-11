@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Issue } from "../../shared/types";
+import type { AuthUser, Issue } from "../../shared/types";
 import { Header } from "./components/Header";
 import { Toolbar } from "./components/Toolbar";
 import type { FilterKey, TabKey } from "./components/Toolbar";
@@ -35,7 +35,9 @@ function tabFromHash(): TabKey {
   return TABS.includes(h) ? h : "roadmap";
 }
 
-export function App(): JSX.Element {
+export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
+  // When auth is disabled, authUser is null and the user is treated as an admin.
+  const isAdmin = authUser?.isAdmin ?? true;
   const { node: toastNode, controller: toast } = useToast();
   const onError = useCallback((m: string) => toast.show(m), [toast]);
   const issuesApi = useIssues(onError);
@@ -231,6 +233,8 @@ export function App(): JSX.Element {
       <Header
         meta={meta}
         config={config}
+        authUser={authUser}
+        isAdmin={isAdmin}
         onScopeChange={(patch) => {
           void (async () => {
             const ok = await updateConfig(patch);
