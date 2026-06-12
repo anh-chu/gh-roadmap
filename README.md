@@ -76,6 +76,23 @@ All config is env vars (see `.env.example` for the annotated list). Highlights:
 | `TOKEN_ENC_KEY` | 32-byte key (hex/base64) encrypting stored user GitHub tokens at rest. Required when GitHub OAuth is set. |
 | `DB_PATH` | SQLite file location. Defaults to `./data/roadmap.db`. |
 
+### Deploying (Docker)
+
+The `Dockerfile` builds a production image (Node, port `3000`); the GitHub Actions workflow
+pushes it via OIDC. Operational notes:
+
+- **Persist the data volume.** Mount a volume at the `DB_PATH` location (default
+  `/app/data`). The SQLite file holds the planning layer (planned weeks, ordering, notes),
+  user roles, linked GitHub tokens, and accounts — **none of it re-derivable from GitHub**.
+  Losing the volume loses planning work. The in-app export (admin → Data) is the backup path.
+- `PORT` overrides the listen port (default `3000`).
+- Generate `TOKEN_ENC_KEY` with `openssl rand -hex 32`. Rotating it invalidates all stored
+  user GitHub tokens (users just reconnect).
+- `SESSION_SECRET` should be set explicitly in a team deploy (it defaults to the Google
+  client secret); rotating it logs everyone out.
+- Public HTTPS origin is assumed by the OAuth callbacks — register
+  `<app-origin>/api/auth/callback` (Google) and `<app-origin>/api/github/callback` (GitHub).
+
 ### Auth modes
 
 - **Single-user (default).** Leave `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` blank — no login,
