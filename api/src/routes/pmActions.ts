@@ -19,8 +19,8 @@ interface CacheRow {
   source_hash: string | null;
 }
 
-function disabled(reply: FastifyReply): FastifyReply {
-  return reply.code(503).send({ error: aiDisabledReason() });
+function disabled(reply: FastifyReply, workspaceId: number): FastifyReply {
+  return reply.code(503).send({ error: aiDisabledReason(workspaceId) });
 }
 
 // Hash the candidate set so the cached AI ranking invalidates when a candidate is added,
@@ -47,31 +47,32 @@ function parseRanking(json: string): PmActionRank[] {
   }
 }
 
-function readCache(): CacheRow | undefined {
+function readCache(workspaceId: number): CacheRow | undefined {
   return db()
     .prepare(
-      "SELECT content, model, generated_at, source_hash FROM ai_insights WHERE kind = 'pm-actions'",
+      "SELECT content, model, generated_at, source_hash FROM ai_insights WHERE kind = ?",
     )
-    .get() as CacheRow | undefined;
+    .get(`pm-actions:${workspaceId}`) as CacheRow | undefined;
 }
 
 async function generateAndStore(
   candidates: PmActionItem[],
   hash: string,
+  workspaceId: number,
 ): Promise<PmActionsResponse> {
-  const { ranking, model } = await rankPmActions(candidates);
+  const { ranking, model } = await rankPmActions(candidates, workspaceId);
   const generatedAt = new Date().toISOString();
   db()
     .prepare(
       `INSERT INTO ai_insights(kind, content, model, generated_at, source_hash)
-       VALUES('pm-actions', ?, ?, ?, ?)
+       VALUES(?, ?, ?, ?, ?)
        ON CONFLICT(kind) DO UPDATE SET
          content=excluded.content,
          model=excluded.model,
          generated_at=excluded.generated_at,
          source_hash=excluded.source_hash`,
     )
-    .run(JSON.stringify(ranking), model, generatedAt, hash);
+    .run(`pm-actions:${workspaceId}`, JSON.stringify(ranking), model, generatedAt, hash);
   return {
     items: applyPmActionRanking(candidates, ranking),
     aiRanked: true,
@@ -82,15 +83,15 @@ async function generateAndStore(
 
 export async function pmActionsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/pm-actions", async (req): Promise<PmActionsResponse> => {
-    const candidates = detectPmActions(getMasterFilter());
+    const candidates = detectPmActions(req.workspaceId, getMasterFilter(req.workspaceId));
 
     // AI off, or nothing to rank: serve the raw detector output. The card still works.
-    if (!isAiEnabled() || candidates.length === 0) {
+    if (!isAiEnabled(req.workspaceId) || candidates.length === 0) {
       return { items: candidates, aiRanked: false, model: null, generatedAt: null };
     }
 
     const hash = candidateHash(candidates);
-    const cached = readCache();
+    const cached = readCache(req.workspaceId);
     if (cached && cached.source_hash === hash) {
       return {
         items: applyPmActionRanking(candidates, parseRanking(cached.content)),
@@ -101,7 +102,7 @@ export async function pmActionsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      return await generateAndStore(candidates, hash);
+      return await generateAndStore(candidates, hash, req.workspaceId);
     } catch (err) {
       req.log.error({ err }, "pm-actions ranking failed");
       // Degrade to raw detectors rather than 503 — the candidates are real either way.
@@ -110,16 +111,16 @@ export async function pmActionsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/api/pm-actions/refresh", async (req, reply): Promise<PmActionsResponse | undefined> => {
-    if (!isAiEnabled()) {
-      disabled(reply);
+    if (!isAiEnabled(req.workspaceId)) {
+      disabled(reply, req.workspaceId);
       return;
     }
-    const candidates = detectPmActions(getMasterFilter());
+    const candidates = detectPmActions(req.workspaceId, getMasterFilter(req.workspaceId));
     if (candidates.length === 0) {
       return { items: candidates, aiRanked: false, model: null, generatedAt: null };
     }
     try {
-      return await generateAndStore(candidates, candidateHash(candidates));
+      return await generateAndStore(candidates, candidateHash(candidates), req.workspaceId);
     } catch (err) {
       req.log.error({ err }, "pm-actions refresh failed");
       reply.code(503).send({

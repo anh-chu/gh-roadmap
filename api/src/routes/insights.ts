@@ -11,6 +11,7 @@ import {
   type MergeInsightSource,
 } from "../ai.js";
 import { closeInsightPr, deleteInsightPr, mergeInsightPr, mergeInsightsPr, publishInsightPr } from "../github.js";
+import { runGithubWrite } from "../githubWriteIdentity.js";
 import { detectDuplicate, type DupCandidate } from "../dedup.js";
 import type {
   ApiInsightAccount,
@@ -505,9 +506,9 @@ function registerDraftRoutes(app: FastifyInstance): void {
         keyQuotes: [] as string[],
         bodyDraft: null as string | null,
       };
-      if (isAiEnabled()) {
+      if (isAiEnabled(req.workspaceId)) {
         try {
-          const r = await extractInsight(captured);
+          const r = await extractInsight(captured, req.workspaceId);
           extracted = r.extracted;
         } catch (err) {
           req.log.warn({ err }, "insight extraction failed; returning empty fields");
@@ -801,13 +802,16 @@ function registerDraftRoutes(app: FastifyInstance): void {
       let prUrl: string;
       let prNumber: number;
       try {
-        const r = await publishInsightPr({
-          filePath,
-          content,
-          title,
-          branchName,
-          prBody: prBodyLines.join("\n"),
-        });
+        const r = await runGithubWrite(req, reply, (octo) =>
+          publishInsightPr(octo, {
+            filePath,
+            content,
+            title,
+            branchName,
+            prBody: prBodyLines.join("\n"),
+          }),
+        );
+        if (r === undefined) return; // 409 link/reauth already sent
         prUrl = r.prUrl;
         prNumber = r.prNumber;
       } catch (err) {
@@ -861,7 +865,8 @@ function registerDraftRoutes(app: FastifyInstance): void {
       }
 
       try {
-        await mergeInsightPr(row.pr_number);
+        await runGithubWrite(req, reply, (octo) => mergeInsightPr(octo, row.pr_number!));
+        if (reply.sent) return; // 409 link/reauth already sent
       } catch (err) {
         req.log.error({ err }, "mergeInsightPr failed");
         reply.code(502).send({ error: "failed to merge PR", detail: explainGhPublishError(err) });
@@ -918,7 +923,8 @@ function registerDraftRoutes(app: FastifyInstance): void {
       }
 
       try {
-        await closeInsightPr(row.pr_number);
+        await runGithubWrite(req, reply, (octo) => closeInsightPr(octo, row.pr_number!));
+        if (reply.sent) return; // 409 link/reauth already sent
       } catch (err) {
         req.log.error({ err }, "closeInsightPr failed");
         reply.code(502).send({ error: "failed to close PR", detail: explainGhPublishError(err) });
@@ -960,7 +966,7 @@ function registerDraftRoutes(app: FastifyInstance): void {
         reply.code(409).send({ error: `cannot regenerate draft in state '${row.state}'` });
         return;
       }
-      if (!isAiEnabled()) {
+      if (!isAiEnabled(req.workspaceId)) {
         reply.code(503).send({ error: "AI is disabled" });
         return;
       }
@@ -974,7 +980,7 @@ function registerDraftRoutes(app: FastifyInstance): void {
 
       let extracted;
       try {
-        const r = await extractInsight(captured);
+        const r = await extractInsight(captured, req.workspaceId);
         extracted = r.extracted;
       } catch (err) {
         req.log.error({ err }, "insight regeneration failed");
@@ -1351,12 +1357,15 @@ function registerOpRoutes(app: FastifyInstance): void {
       let prUrl: string;
       let prNumber: number;
       try {
-        const r = await deleteInsightPr({
-          filePath: ins.path,
-          title: ins.title,
-          branchName,
-          prBody: `Retiring \`${ins.path}\` via gh-roadmap insights.`,
-        });
+        const r = await runGithubWrite(req, reply, (octo) =>
+          deleteInsightPr(octo, {
+            filePath: ins.path,
+            title: ins.title,
+            branchName,
+            prBody: `Retiring \`${ins.path}\` via gh-roadmap insights.`,
+          }),
+        );
+        if (r === undefined) return; // 409 link/reauth already sent
         prUrl = r.prUrl;
         prNumber = r.prNumber;
       } catch (err) {
@@ -1391,7 +1400,7 @@ function registerOpRoutes(app: FastifyInstance): void {
         reply.code(404).send({ error: "insights disabled" });
         return;
       }
-      if (!isAiEnabled()) {
+      if (!isAiEnabled(req.workspaceId)) {
         reply.code(503).send({ error: "Merge needs AI — configure AI_BASE_URL + AI_MODEL" });
         return;
       }
@@ -1404,10 +1413,13 @@ function registerOpRoutes(app: FastifyInstance): void {
       let merged;
       try {
         merged = (
-          await synthesizeMerge({
-            survivor: insightToMergeSource(survivor),
-            victims: [...victimInsights.map(insightToMergeSource), ...victimDrafts.map(draftToMergeSource)],
-          })
+          await synthesizeMerge(
+            {
+              survivor: insightToMergeSource(survivor),
+              victims: [...victimInsights.map(insightToMergeSource), ...victimDrafts.map(draftToMergeSource)],
+            },
+            req.workspaceId,
+          )
         ).merged;
       } catch (err) {
         req.log.error({ err }, "synthesizeMerge failed");
@@ -1508,14 +1520,17 @@ function registerOpRoutes(app: FastifyInstance): void {
       let prUrl: string;
       let prNumber: number;
       try {
-        const r = await mergeInsightsPr({
-          survivorPath: survivor.path,
-          survivorContent: content,
-          victimPaths,
-          title: survivor.title,
-          branchName,
-          prBody: prBodyLines.join("\n"),
-        });
+        const r = await runGithubWrite(req, reply, (octo) =>
+          mergeInsightsPr(octo, {
+            survivorPath: survivor.path,
+            survivorContent: content,
+            victimPaths,
+            title: survivor.title,
+            branchName,
+            prBody: prBodyLines.join("\n"),
+          }),
+        );
+        if (r === undefined) return; // 409 link/reauth already sent
         prUrl = r.prUrl;
         prNumber = r.prNumber;
       } catch (err) {
@@ -1581,7 +1596,8 @@ function registerOpRoutes(app: FastifyInstance): void {
         return;
       }
       try {
-        await mergeInsightPr(row.pr_number);
+        await runGithubWrite(req, reply, (octo) => mergeInsightPr(octo, row.pr_number!));
+        if (reply.sent) return; // 409 link/reauth already sent
       } catch (err) {
         req.log.error({ err }, "insight-op merge failed");
         reply.code(502).send({ error: "failed to merge PR", detail: explainGhPublishError(err) });
@@ -1633,7 +1649,8 @@ function registerOpRoutes(app: FastifyInstance): void {
         return;
       }
       try {
-        await closeInsightPr(row.pr_number);
+        await runGithubWrite(req, reply, (octo) => closeInsightPr(octo, row.pr_number!));
+        if (reply.sent) return; // 409 link/reauth already sent
       } catch (err) {
         req.log.error({ err }, "insight-op close failed");
         reply.code(502).send({ error: "failed to close PR", detail: explainGhPublishError(err) });

@@ -419,7 +419,7 @@ export async function accountsRoutes(app: FastifyInstance): Promise<void> {
             generatedAt: accountRow.ai_read_at ?? "",
             fromCache: true,
           };
-        } else if (isAiEnabled()) {
+        } else if (isAiEnabled(req.workspaceId)) {
           try {
             const signals: AccountReadSignal[] = timelineRows.map((r) => ({
               date: r.date,
@@ -428,11 +428,14 @@ export async function accountsRoutes(app: FastifyInstance): Promise<void> {
               title: r.title,
               excerpt: r.body_excerpt,
             }));
-            const { content, model } = await accountRead({
-              displayName: accountRow.display_name,
-              signals,
-              caresAboutIssues: caresAbout.map((c) => c.issueNumber),
-            });
+            const { content, model } = await accountRead(
+              {
+                displayName: accountRow.display_name,
+                signals,
+                caresAboutIssues: caresAbout.map((c) => c.issueNumber),
+              },
+              req.workspaceId,
+            );
             const generatedAt = storeAiRead(slug, content, model, sourceHash);
             aiRead = { content, model, generatedAt, fromCache: false };
           } catch (err) {
@@ -527,7 +530,7 @@ export async function accountsRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { slug: string } }>(
     "/api/accounts/:slug/regenerate",
     async (req, reply): Promise<AccountAiRead | undefined> => {
-      if (!isAiEnabled()) {
+      if (!isAiEnabled(req.workspaceId)) {
         reply.code(503).send({ error: "AI not configured" });
         return;
       }
@@ -584,11 +587,14 @@ export async function accountsRoutes(app: FastifyInstance): Promise<void> {
       }));
 
       try {
-        const { content, model } = await accountRead({
-          displayName: accountRow.display_name,
-          signals,
-          caresAboutIssues: issueNumbers,
-        });
+        const { content, model } = await accountRead(
+          {
+            displayName: accountRow.display_name,
+            signals,
+            caresAboutIssues: issueNumbers,
+          },
+          req.workspaceId,
+        );
         const generatedAt = storeAiRead(slug, content, model, sourceHash);
         return { content, model, generatedAt, fromCache: false };
       } catch (err) {

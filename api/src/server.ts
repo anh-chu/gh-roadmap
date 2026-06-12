@@ -10,7 +10,9 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import { initDb } from "./db.js";
 import { initGithub, getRateLimitStatus } from "./github.js";
 import { reconcile, runDailySnapshot } from "./sync.js";
-import { backfillHealthSnapshots } from "./healthBackfill.js";
+import { backfillAllHealthSnapshots } from "./healthBackfill.js";
+import { activeWorkspaceId } from "./workspace.js";
+import { workspacesRoutes } from "./routes/workspaces.js";
 import { issuesRoutes } from "./routes/issues.js";
 import { commentsRoutes } from "./routes/comments.js";
 import { webhookRoutes } from "./routes/webhook.js";
@@ -34,6 +36,8 @@ import { reconcileInsights } from "./insights.js";
 import { authRoutes } from "./routes/auth.js";
 import { usersRoutes } from "./routes/users.js";
 import { authEnabled, userFromRequest } from "./auth.js";
+import { assertGithubOauthBootConfig, githubOauthEnabled } from "./githubOauth.js";
+import { githubAuthRoutes } from "./routes/githubAuth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -71,12 +75,22 @@ async function main(): Promise<void> {
     app.log.warn("auth disabled (GOOGLE_CLIENT_ID/SECRET unset) — single-user localhost mode");
   }
 
+  // GitHub OAuth (per-user write identity) boot guards: misconfiguration refuses boot.
+  // With the feature env unset this is a no-op and TOKEN_ENC_KEY is never validated.
+  assertGithubOauthBootConfig();
+  if (githubOauthEnabled()) {
+    app.log.info("GitHub OAuth enabled — users can link their GitHub write identity");
+  }
+
   // Resolve the user on every request and gate /api/* behind a session when auth is on.
   // Public paths: the auth endpoints themselves (login/callback/me/logout). Everything else
   // under /api requires a valid session. /webhook is HMAC-verified separately and stays open.
   app.addHook("onRequest", async (req, reply) => {
     const user = userFromRequest(req);
     if (user) req.user = user;
+    // Active pod: resolved after the user, from the rm_workspace preference cookie
+    // (falls back to the first non-archived pod). Route handlers read req.workspaceId.
+    req.workspaceId = activeWorkspaceId(req);
     if (!authEnabled()) return;
 
     const url = req.url.split("?")[0] ?? "";
@@ -88,10 +102,10 @@ async function main(): Promise<void> {
     // unless exempt. Rule for exemption: writes that touch only the caller's own row/cookie or
     // feed a reviewed inbox, never shared state directly. Today: the auth flow (logout is a POST)
     // and insight capture (owner decision 2026-06-11: capture lands in the PM-reviewed inbox, so
-    // viewers — e.g. sales hearing customer signal — may capture). The self-scoped pod-switch
-    // route (/api/workspaces/active) will join this list when multi-pod lands.
+    // viewers — e.g. sales hearing customer signal — may capture), and the pod switch
+    // (/api/workspaces/active), which only writes the caller's own rm_workspace cookie.
     // Note the gate is method-based: lazy AI cache-fill on GET is allowed for viewers by design.
-    const viewerExemptPrefixes = ["/api/auth/", "/api/insights/capture"];
+    const viewerExemptPrefixes = ["/api/auth/", "/api/insights/capture", "/api/workspaces/active"];
     if (
       user.role === "viewer" &&
       req.method !== "GET" &&
@@ -105,7 +119,10 @@ async function main(): Promise<void> {
   // API routes mount first so anything under /api or /webhook is handled by Fastify;
   // the SPA (vite middleware in dev, static dist in prod) catches everything else.
   await app.register(authRoutes);
+  await app.register(githubAuthRoutes); // /api/github/* — behind the Google session gate
+
   await app.register(usersRoutes);
+  await app.register(workspacesRoutes);
   await app.register(issuesRoutes);
   await app.register(commentsRoutes);
   await app.register(metaRoutes);
@@ -176,7 +193,7 @@ async function main(): Promise<void> {
         // Backfill must run AFTER reconcile (needs DB populated) and BEFORE the
         // initial daily snapshot (today is owned by runDailySnapshot, not backfill).
         try {
-          const b = backfillHealthSnapshots(30);
+          const b = backfillAllHealthSnapshots(30);
           app.log.info({ ...b }, "boot health backfill done");
         } catch (err) {
           app.log.error({ err }, "boot health backfill failed");
@@ -217,7 +234,7 @@ async function main(): Promise<void> {
     // Sync disabled — still backfill against whatever's in the DB so the sparkline
     // works in offline / no-token environments. Returns {0,0} on an empty DB.
     try {
-      const b = backfillHealthSnapshots(30);
+      const b = backfillAllHealthSnapshots(30);
       app.log.info({ ...b }, "boot health backfill done (sync disabled)");
     } catch (err) {
       app.log.error({ err }, "boot health backfill failed (sync disabled)");

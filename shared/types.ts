@@ -47,6 +47,16 @@ export interface MasterFilter {
   exclude: string[];
 }
 
+// One pod on the shared instance (a workspace_config row's identity fields).
+export interface Workspace {
+  id: number;
+  slug: string;
+  name: string;
+  // ISO timestamp when archived; null = live. Archived pods never show in the
+  // plain switcher — only in the admin manage popover (greyed, unarchivable).
+  archivedAt: string | null;
+}
+
 export interface WorkspaceConfig {
   bucketingField: BucketingField;
   bucketingValue: string;
@@ -109,6 +119,14 @@ export interface AuthMe {
   authEnabled: boolean;
   // null when auth is enabled but the request has no valid session (show login screen).
   user: AuthUser | null;
+  // GitHub write-identity (layer 3). For the passive UserMenu status + connect-prompt copy
+  // ONLY — never used to gate or hide a write button (the server's 409 is the only gate).
+  // false when GITHUB_OAUTH_CLIENT_ID/SECRET are unset — all writes use the service token.
+  githubOauthEnabled: boolean;
+  // true when the signed-in user has linked a GitHub account (always false when OAuth is off).
+  githubLinked: boolean;
+  // GitHub login of the linked account, null when unlinked.
+  githubLogin: string | null;
 }
 
 export interface MetaResponse {

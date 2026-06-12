@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db.js";
 import { createIssue, updateIssue, type IssueCreate, type IssuePatch } from "../github.js";
+import { runGithubWrite } from "../githubWriteIdentity.js";
 import { upsertIssue } from "../sync.js";
 import { getMasterFilter, masterFilterSql } from "../masterFilter.js";
+import { getWorkspace } from "../workspace.js";
 
 type IssueJoinedRow = {
   number: number;
@@ -61,17 +63,24 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const title = req.body.title?.trim();
       if (!title) return reply.code(400).send({ error: "title required" });
+      // New issues belong to the active pod: auto-apply its pod:<slug> label so the
+      // issue lands inside the pod's master filter (owner decision, slug-derived).
+      const slug = getWorkspace(req.workspaceId)?.slug;
+      const labels = req.body.labels ?? [];
+      if (slug && !labels.includes(`pod:${slug}`)) labels.push(`pod:${slug}`);
       try {
-        const created = await createIssue({ ...req.body, title });
-        upsertIssue(created);
-        const row = db()
-          .prepare(
-            `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
-             FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number
-             WHERE i.number = ?`,
-          )
-          .get(created.number) as IssueJoinedRow;
-        return rowToJson(row);
+        return await runGithubWrite(req, reply, async (octo) => {
+          const created = await createIssue(octo, { ...req.body, title, labels });
+          upsertIssue(created);
+          const row = db()
+            .prepare(
+              `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
+               FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
+               WHERE i.number = ?`,
+            )
+            .get(req.workspaceId, created.number) as IssueJoinedRow;
+          return rowToJson(row);
+        });
       } catch (err) {
         req.log.error({ err }, "github issue create failed");
         return reply.code(502).send({ error: "github issue create failed" });
@@ -79,8 +88,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get("/api/issues", async () => {
-    const mf = masterFilterSql(getMasterFilter());
+  app.get("/api/issues", async (req) => {
+    const mf = masterFilterSql(getMasterFilter(req.workspaceId));
     const where = mf ? `WHERE ${mf.sql}` : "";
     const params = mf ? mf.params : [];
     const rows = db()
@@ -88,11 +97,11 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at,
                 m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
          FROM issues i
-         LEFT JOIN roadmap_meta m ON m.issue_number = i.number
+         LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
          ${where}
          ORDER BY i.updated_at DESC`,
       )
-      .all(...params) as IssueJoinedRow[];
+      .all(req.workspaceId, ...params) as IssueJoinedRow[];
     return rows.map(rowToJson);
   });
 
@@ -136,16 +145,18 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         }
       }
       try {
-        const updated = await updateIssue(num, patch);
-        upsertIssue(updated);
-        const row = db()
-          .prepare(
-            `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
-             FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number
-             WHERE i.number = ?`,
-          )
-          .get(num) as IssueJoinedRow;
-        return rowToJson(row);
+        return await runGithubWrite(req, reply, async (octo) => {
+          const updated = await updateIssue(octo, num, patch);
+          upsertIssue(updated);
+          const row = db()
+            .prepare(
+              `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
+               FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
+               WHERE i.number = ?`,
+            )
+            .get(req.workspaceId, num) as IssueJoinedRow;
+          return rowToJson(row);
+        });
       } catch (err) {
         req.log.error({ err }, "github update failed");
         return reply.code(502).send({ error: "github update failed" });
@@ -185,7 +196,8 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "plannedWeek must match YYYY-Www (ISO week)" });
       }
 
-      const current = db().prepare("SELECT * FROM roadmap_meta WHERE issue_number = ?").get(num) as
+      const workspaceId = req.workspaceId;
+      const current = db().prepare("SELECT * FROM roadmap_meta WHERE workspace_id = ? AND issue_number = ?").get(workspaceId, num) as
         | { planned_month: string | null; planned_week: string | null; roadmap_notes: string | null; position: number | null; is_todo: number | null }
         | undefined;
 
@@ -218,14 +230,14 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
 
       db()
         .prepare(
-          `INSERT INTO roadmap_meta(issue_number,planned_month,planned_week,roadmap_notes,position,is_todo,app_updated_at)
-           VALUES(?,?,?,?,?,?,?)
-           ON CONFLICT(issue_number) DO UPDATE SET
+          `INSERT INTO roadmap_meta(workspace_id,issue_number,planned_month,planned_week,roadmap_notes,position,is_todo,app_updated_at)
+           VALUES(?,?,?,?,?,?,?,?)
+           ON CONFLICT(workspace_id,issue_number) DO UPDATE SET
              planned_month=excluded.planned_month, planned_week=excluded.planned_week,
              roadmap_notes=excluded.roadmap_notes, position=excluded.position, is_todo=excluded.is_todo,
              app_updated_at=excluded.app_updated_at`,
         )
-        .run(num, merged.planned_month, merged.planned_week, merged.roadmap_notes, merged.position, merged.is_todo, new Date().toISOString());
+        .run(workspaceId, num, merged.planned_month, merged.planned_week, merged.roadmap_notes, merged.position, merged.is_todo, new Date().toISOString());
 
       return { number: num, ...merged, isTodo: !!merged.is_todo };
     },

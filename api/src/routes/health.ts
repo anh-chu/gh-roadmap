@@ -43,10 +43,11 @@ function parseRisk(json: string): RiskItem[] {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/health", async (): Promise<HealthLive> => {
-    const { confidence, sampleSize, noSignal } = computeConfidence();
-    const atRisk = computeAtRisk();
-    const schedule = computeScheduleHealth();
+  app.get("/api/health", async (req): Promise<HealthLive> => {
+    const workspaceId = req.workspaceId;
+    const { confidence, sampleSize, noSignal } = computeConfidence(workspaceId);
+    const atRisk = computeAtRisk(workspaceId);
+    const schedule = computeScheduleHealth(workspaceId);
     return { asOf: "now", confidence, sampleSize, noSignal, atRisk, schedule };
   });
 
@@ -59,10 +60,11 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
         .prepare(
           `SELECT snapshot_date, confidence, on_time, sample_size, at_risk_json
            FROM health_snapshots
+           WHERE workspace_id = ?
            ORDER BY snapshot_date DESC
            LIMIT ?`,
         )
-        .all(days) as HistoryRow[];
+        .all(req.workspaceId, days) as HistoryRow[];
       const out: HealthSnapshotSummary[] = rows.map((r) => ({
         date: r.snapshot_date,
         confidence: r.confidence,
@@ -80,7 +82,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     async (req): Promise<{ written: number; skipped: number }> => {
       const raw = Number(req.query.days ?? 30);
       const days = Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), 90) : 30;
-      return backfillHealthSnapshots(days);
+      return backfillHealthSnapshots(req.workspaceId, days);
     },
   );
 
@@ -94,9 +96,9 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       const row = db()
         .prepare(
           `SELECT snapshot_date, confidence, sample_size, at_risk_json, computed_at
-           FROM health_snapshots WHERE snapshot_date = ?`,
+           FROM health_snapshots WHERE workspace_id = ? AND snapshot_date = ?`,
         )
-        .get(date) as SnapshotRow | undefined;
+        .get(req.workspaceId, date) as SnapshotRow | undefined;
       if (!row) {
         return reply.code(404).send({ error: "no snapshot for that date" });
       }
@@ -107,7 +109,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
         confidence: row.confidence,
         sampleSize: row.sample_size,
         atRisk: parseRisk(row.at_risk_json),
-        schedule: computeScheduleHealth(undefined, row.snapshot_date),
+        schedule: computeScheduleHealth(req.workspaceId, undefined, row.snapshot_date),
       };
     },
   );

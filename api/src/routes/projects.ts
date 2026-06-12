@@ -7,6 +7,7 @@ import {
   type GhProjectSummary,
   type GhProjectItemRaw,
 } from "../github.js";
+import { runGithubWrite } from "../githubWriteIdentity.js";
 import { getMasterFilter, passesMasterFilter, type MasterFilter } from "../masterFilter.js";
 import type { ProjectFull, ProjectItem, ProjectStatusOption, ProjectSummary } from "../../../shared/types.js";
 
@@ -207,11 +208,11 @@ function applyMasterFilter(items: ProjectItem[], mf: MasterFilter): ProjectItem[
   });
 }
 
-function projectFull(row: ProjectRow): ProjectFull {
+function projectFull(row: ProjectRow, workspaceId: number): ProjectFull {
   const items = db()
     .prepare("SELECT * FROM project_items WHERE project_number = ? ORDER BY item_id ASC")
     .all(row.number) as ItemRow[];
-  const mf = getMasterFilter();
+  const mf = getMasterFilter(workspaceId);
   const mapped = items.map(itemRowToJson);
   const filtered = applyMasterFilter(mapped, mf);
   return {
@@ -269,7 +270,7 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
         // Fall through with stale cache.
       }
     }
-    return projectFull(row);
+    return projectFull(row, req.workspaceId);
   });
 
   app.post<{ Params: { num: string } }>("/api/projects/:num/refresh", async (req, reply) => {
@@ -280,7 +281,7 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const row = await refreshOne(num);
       if (!row) return reply.code(404).send({ error: "project not found" });
-      return projectFull(row);
+      return projectFull(row, req.workspaceId);
     } catch (err) {
       app.log.error({ err }, "project refresh failed");
       return reply.code(502).send({ error: "github project refresh failed" });
@@ -329,7 +330,16 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        await updateProjectItemStatus(projectRow.node_id, itemRow.item_id, projectRow.status_field_id, newOptionId);
+        await runGithubWrite(req, reply, (octo) =>
+          updateProjectItemStatus(
+            octo,
+            projectRow.node_id,
+            itemRow.item_id,
+            projectRow.status_field_id!,
+            newOptionId,
+          ),
+        );
+        if (reply.sent) return; // 409 link/reauth already sent by the wrapper
       } catch (err) {
         req.log.error({ err }, "project status update failed");
         return reply.code(502).send({ error: "github status update failed" });

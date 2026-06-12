@@ -67,12 +67,12 @@ interface FlowRule {
 }
 
 export async function flowRulesRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/flow/rules", async () => {
+  app.get("/api/flow/rules", async (req) => {
     const t = db()
       .prepare(
-        "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = 1",
+        "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = ?",
       )
-      .get() as ThresholdRow | undefined;
+      .get(req.workspaceId) as ThresholdRow | undefined;
     const v = {
       flowShippingHours: t?.flow_shipping_hours ?? 24,
       flowReviewDays: t?.flow_review_days ?? 3,
@@ -139,12 +139,12 @@ export async function flowRulesRoutes(app: FastifyInstance): Promise<void> {
 
 export async function flowRoutes(app: FastifyInstance): Promise<void> {
   await flowRulesRoutes(app);
-  app.get("/api/flow", async () => {
+  app.get("/api/flow", async (req) => {
     const t = db()
       .prepare(
-        "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = 1",
+        "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = ?",
       )
-      .get() as ThresholdRow | undefined;
+      .get(req.workspaceId) as ThresholdRow | undefined;
 
     const thresholds: FlowThresholdsResolved = {
       shippingHours: t?.flow_shipping_hours ?? 24,
@@ -156,7 +156,7 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
       freshDays: t?.flow_fresh_days ?? 7,
     };
 
-    const mf = masterFilterSql(getMasterFilter());
+    const mf = masterFilterSql(getMasterFilter(req.workspaceId));
     const scope = mf ? ` WHERE ${mf.sql}` : "";
     const scopeParams = mf ? mf.params : [];
 

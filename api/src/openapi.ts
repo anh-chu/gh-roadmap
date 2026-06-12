@@ -39,6 +39,17 @@ const ok = (schema: JsonSchema = { type: "object", additionalProperties: true })
   "502": json({ $ref: "#/components/schemas/Error" }, "Upstream error"),
 });
 
+// Responses for user-initiated GitHub writes (x-github-write). When per-user GitHub OAuth is
+// enabled, these can 409: { error: "github_not_linked" } (caller has no linked GitHub account)
+// or { error: "github_reauth_required" } (stored token was revoked — relink via /api/github/login).
+const okGh = (schema: JsonSchema = { type: "object", additionalProperties: true }) => ({
+  ...ok(schema),
+  "409": json(
+    { $ref: "#/components/schemas/Error" },
+    "GitHub identity required (only when GitHub OAuth is enabled): error is github_not_linked or github_reauth_required — connect via GET /api/github/login and retry",
+  ),
+});
+
 const numberParam = param("num", "GitHub issue or project number", { type: "integer" });
 const idParam = param("id", "Numeric identifier", { type: "integer" });
 const slugParam = param("slug", "Stable slug", { type: "string" });
@@ -70,13 +81,13 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       version: "0.2.0",
       summary: "Local PM roadmap API for issues, planning metadata, insights, accounts, AI reads, health, and sync actions.",
       description: [
-        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings, user roles) return 403 for non-admins. Roles: viewer / editor / admin — viewers get 403 on any non-GET/HEAD endpoint except /api/auth/* and /api/insights/capture.",
+        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings, user roles) return 403 for non-admins. Roles: viewer / editor / admin — viewers get 403 on any non-GET/HEAD endpoint except /api/auth/*, /api/insights/capture, and /api/workspaces/active.",
         "",
-        "**Scoping.** GET reads are filtered by the workspace master filter (label include/exclude lists, default `include: [pod:mht]`). Write endpoints are intentionally NOT filtered.",
+        "**Scoping.** GET reads are filtered by the active workspace's master filter (label include/exclude lists, default `include: [pod:mht]`). Write endpoints are intentionally NOT filtered. The active workspace (pod) is a preference carried in the `rm_workspace` cookie — set via `POST /api/workspaces/active`; falls back to the first non-archived workspace.",
         "",
         "**Field ownership.** `title`, `body`, `state`, `assignee`, `labels`, `milestone`, and comments are mirrored to/from GitHub — `PATCH /api/issues/{num}` writes them to the real repo. `plannedMonth` (format `YYYY-MM`), `plannedWeek` (format `YYYY-Www`, ISO week), `isTodo`, `roadmapNotes`, and `position` are app-only planning fields kept in SQLite and NEVER written back to GitHub — set them via `PATCH /api/issues/{num}/roadmap`.",
         "",
-        "**Operation flags.** `x-side-effects`: mutates state. `x-github-write`: mutates the real GitHub repo (issues / comments / PRs), not just the local DB — use deliberately. `x-ai-call`: invokes the configured AI model (returns 503 when AI is unset).",
+        "**Operation flags.** `x-side-effects`: mutates state. `x-github-write`: mutates the real GitHub repo (issues / comments / PRs), not just the local DB — use deliberately. When per-user GitHub OAuth is enabled (GITHUB_OAUTH_CLIENT_ID/SECRET set), these writes act as the caller's linked GitHub account and return `409 { error: \"github_not_linked\" }` (no account linked) or `409 { error: \"github_reauth_required\" }` (token revoked) until the caller connects via `GET /api/github/login`. When OAuth is unset, all writes use the service token. `x-ai-call`: invokes the configured AI model (returns 503 when AI is unset).",
         "",
         "**Insight flow.** `POST /api/insights/capture` creates a draft in the inbox; the PM reviews it; publishing opens a PR on the product repo; merged insights appear on the next sync.",
       ].join("\n"),
@@ -114,6 +125,22 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       },
       "/api/auth/logout": {
         post: op("auth", "authLogout", "Clear the session cookie.", {
+          "x-side-effects": true,
+          responses: ok({ type: "object", properties: { ok: { type: "boolean" } } }),
+        }),
+      },
+      "/api/github/login": {
+        get: op("auth", "githubLogin", "Redirect to GitHub consent to link the caller's GitHub account (per-user write identity). No-op redirect to / when GitHub OAuth is disabled.", {
+          responses: { "302": { description: "Redirect to GitHub OAuth (or / when disabled)" } },
+        }),
+      },
+      "/api/github/callback": {
+        get: op("auth", "githubCallback", "GitHub OAuth callback — validates scope + repo access, stores the encrypted token, and redirects to /.", {
+          responses: { "302": { description: "Redirect to / (with ?github_error=… on failure)" } },
+        }),
+      },
+      "/api/github/unlink": {
+        post: op("auth", "githubUnlink", "Disconnect the caller's linked GitHub account. Subsequent GitHub writes return 409 github_not_linked until relinked.", {
           "x-side-effects": true,
           responses: ok({ type: "object", properties: { ok: { type: "boolean" } } }),
         }),
@@ -176,9 +203,59 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       },
       "/api/config": {
         get: op("config", "getConfig", "Read workspace config.", { responses: ok({ $ref: "#/components/schemas/WorkspaceConfig" }) }),
-        patch: op("config", "updateConfig", "Update workspace config.", {
+        patch: op("config", "updateConfig", "Update workspace config (admin only).", {
+          description: "Admin-only: the config row defines the whole pod's view (base master filter, bucketing, thresholds). Non-admins receive 403.",
           requestBody: body({ $ref: "#/components/schemas/WorkspaceConfigPatch" }),
           responses: ok({ $ref: "#/components/schemas/WorkspaceConfig" }),
+          "x-side-effects": true,
+        }),
+      },
+      "/api/workspaces": {
+        get: op("config", "listWorkspaces", "List all workspaces (pods, archived included) and the caller's active workspace id.", {
+          description: "archivedAt is null for live pods. The switcher UI shows only live pods; archived pods are unarchivable from the admin manage popover.",
+          responses: ok({
+            type: "object",
+            properties: {
+              workspaces: arrayOf("#/components/schemas/Workspace"),
+              activeId: { type: "integer" },
+            },
+          }),
+        }),
+        post: op("config", "createWorkspace", "Create a workspace (pod). Admin only.", {
+          description: "Slug must match [a-z0-9-]+ and be unique (409 on duplicate). The new pod gets default config with master filter include ['pod:<slug>'].",
+          requestBody: body({
+            type: "object",
+            required: ["slug", "name"],
+            additionalProperties: false,
+            properties: { slug: { type: "string" }, name: { type: "string" } },
+          }),
+          responses: ok({ $ref: "#/components/schemas/Workspace" }),
+          "x-side-effects": true,
+        }),
+      },
+      "/api/workspaces/{id}": {
+        patch: op("config", "updateWorkspace", "Rename and/or archive/unarchive a workspace (pod). Admin only.", {
+          description: "archived: true sets archivedAt to now; false clears it. Archiving the last live pod is rejected with 409 (there must always be ≥1 live pod). No delete — archive only.",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "integer" } }],
+          requestBody: body({
+            type: "object",
+            additionalProperties: false,
+            properties: { name: { type: "string" }, archived: { type: "boolean" } },
+          }),
+          responses: ok({ $ref: "#/components/schemas/Workspace" }),
+          "x-side-effects": true,
+        }),
+      },
+      "/api/workspaces/active": {
+        post: op("config", "setActiveWorkspace", "Switch the caller's active workspace (pod).", {
+          description: "Self-scoped preference write: sets the rm_workspace cookie. Open to any signed-in user (including viewers). 404 if the workspace does not exist or is archived.",
+          requestBody: body({
+            type: "object",
+            required: ["id"],
+            additionalProperties: false,
+            properties: { id: { type: "integer" } },
+          }),
+          responses: ok({ $ref: "#/components/schemas/Workspace" }),
           "x-side-effects": true,
         }),
       },
@@ -190,7 +267,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         post: op("issues", "createIssue", "Create GitHub issue, then mirror it locally.", {
           description: "Creates the issue on the real GitHub repo, then mirrors it into SQLite. New issues carry no planning metadata until you PATCH .../roadmap.",
           requestBody: body({ $ref: "#/components/schemas/IssueCreate" }),
-          responses: ok({ $ref: "#/components/schemas/Issue" }),
+          responses: okGh({ $ref: "#/components/schemas/Issue" }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
@@ -200,7 +277,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           description: "Writes title / body / state / assignee / labels / milestone to the real GitHub repo. For app-only planning fields (plannedMonth, plannedWeek, isTodo, roadmapNotes, position) use PATCH /api/issues/{num}/roadmap instead.",
           parameters: [numberParam],
           requestBody: body({ $ref: "#/components/schemas/IssuePatch" }),
-          responses: ok({ $ref: "#/components/schemas/Issue" }),
+          responses: okGh({ $ref: "#/components/schemas/Issue" }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
@@ -222,7 +299,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         post: op("comments", "createIssueComment", "Create GitHub comment on one issue.", {
           parameters: [numberParam],
           requestBody: body({ $ref: "#/components/schemas/CommentPatch" }),
-          responses: ok({ $ref: "#/components/schemas/Comment" }),
+          responses: okGh({ $ref: "#/components/schemas/Comment" }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
@@ -231,13 +308,13 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         patch: op("comments", "updateComment", "Update GitHub comment body.", {
           parameters: [idParam],
           requestBody: body({ $ref: "#/components/schemas/CommentPatch" }),
-          responses: ok({ $ref: "#/components/schemas/Comment" }),
+          responses: okGh({ $ref: "#/components/schemas/Comment" }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
         delete: op("comments", "deleteComment", "Delete GitHub comment.", {
           parameters: [idParam],
-          responses: ok({ $ref: "#/components/schemas/Ok" }),
+          responses: okGh({ $ref: "#/components/schemas/Ok" }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
@@ -394,7 +471,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       "/api/import": {
         post: op("data", "importData", "Restore the workspace from an export file (replace-all).", {
           description:
-            "Replace-all restore: each table present in the file is wiped and reloaded in one transaction. Unknown tables/columns are skipped; missing columns fall back to schema defaults. On any error the whole import rolls back. Body is the object produced by GET /api/export.",
+            "Replace-all restore: each table present in the file is wiped and reloaded in one transaction. Unknown tables/columns are skipped; missing columns fall back to schema defaults. Legacy pre-multi-pod backups are accepted: workspace_config rows without slug get slug 'mht' / name 'MHT', and roadmap_meta / health_snapshots rows without workspace_id are filed under workspace 1. On any error the whole import rolls back. Body is the object produced by GET /api/export.",
           requestBody: body({
             type: "object",
             required: ["tables"],
@@ -443,9 +520,9 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           "x-side-effects": true,
         }),
       },
-      "/api/insights/drafts/{id}/publish": postAction("insights", "publishInsightDraft", "Publish draft as GitHub PR.", true),
-      "/api/insights/drafts/{id}/merge": postAction("insights", "mergeInsightDraftPr", "Merge draft PR through GitHub.", true),
-      "/api/insights/drafts/{id}/close-pr": postAction("insights", "closeInsightDraftPr", "Close draft PR without publishing signal.", true),
+      "/api/insights/drafts/{id}/publish": postAction("insights", "publishInsightDraft", "Publish draft as GitHub PR.", true, false, true),
+      "/api/insights/drafts/{id}/merge": postAction("insights", "mergeInsightDraftPr", "Merge draft PR through GitHub.", true, false, true),
+      "/api/insights/drafts/{id}/close-pr": postAction("insights", "closeInsightDraftPr", "Close draft PR without publishing signal.", true, false, true),
       "/api/insights/drafts/{id}/regenerate": postAction("insights", "regenerateInsightDraft", "Regenerate draft extraction/body with AI.", true, true),
       "/api/insights/drafts/{id}/discard": postAction("insights", "discardInsightDraft", "Discard draft inbox item.", true),
       "/api/insight-ops": {
@@ -454,8 +531,9 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       "/api/insights/{slug}/mark-delete": {
         post: op("insights", "markInsightDelete", "Create operation to delete mirrored insight via PR.", {
           parameters: [slugParam],
-          responses: ok({ $ref: "#/components/schemas/InsightOp" }),
+          responses: okGh({ $ref: "#/components/schemas/InsightOp" }),
           "x-side-effects": true,
+          "x-github-write": true,
         }),
       },
       "/api/insights/merge/prepare": {
@@ -469,13 +547,13 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       "/api/insights/merge": {
         post: op("insights", "mergeInsights", "Open a PR that folds duplicate insights/drafts into a survivor insight.", {
           requestBody: body({ $ref: "#/components/schemas/InsightMergeExecute" }),
-          responses: ok({ $ref: "#/components/schemas/InsightOp" }),
+          responses: okGh({ $ref: "#/components/schemas/InsightOp" }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
       },
-      "/api/insight-ops/{id}/merge": postAction("insights", "mergeInsightOp", "Merge pending insight operation PR.", true),
-      "/api/insight-ops/{id}/close": postAction("insights", "closeInsightOp", "Close pending insight operation PR.", true),
+      "/api/insight-ops/{id}/merge": postAction("insights", "mergeInsightOp", "Merge pending insight operation PR.", true, false, true),
+      "/api/insight-ops/{id}/close": postAction("insights", "closeInsightOp", "Close pending insight operation PR.", true, false, true),
 
       "/api/ai/issue-summary/{num}": {
         get: op("ai", "getIssueSummary", "Read cached or freshly generated issue summary.", { parameters: [numberParam], responses: ok({ $ref: "#/components/schemas/AiBlock" }) }),
@@ -519,7 +597,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         patch: op("projects", "updateProjectItem", "Move/update a GitHub Project v2 item.", {
           parameters: [numberParam, param("itemId", "Project item id")],
           requestBody: body({ type: "object", required: ["statusOptionId"], properties: { statusOptionId: nullableString }, additionalProperties: false }),
-          responses: ok({ type: "object", additionalProperties: true }),
+          responses: okGh({ type: "object", additionalProperties: true }),
           "x-side-effects": true,
           "x-github-write": true,
         }),
@@ -538,13 +616,14 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
   };
 }
 
-function postAction(tag: string, operationId: string, summary: string, sideEffects = true, aiCall = false) {
+function postAction(tag: string, operationId: string, summary: string, sideEffects = true, aiCall = false, ghWrite = false) {
   return {
     post: op(tag, operationId, summary, {
       parameters: [idParam],
-      responses: ok({ type: "object", additionalProperties: true }),
+      responses: ghWrite ? okGh({ type: "object", additionalProperties: true }) : ok({ type: "object", additionalProperties: true }),
       ...(sideEffects ? { "x-side-effects": true } : {}),
       ...(aiCall ? { "x-ai-call": true } : {}),
+      ...(ghWrite ? { "x-github-write": true } : {}),
     }),
   };
 }
@@ -649,8 +728,11 @@ const components: Record<string, JsonSchema> = {
           isAdmin: { type: "boolean" },
         },
       },
+      githubOauthEnabled: { type: "boolean", description: "Per-user GitHub OAuth configured server-side (GITHUB_OAUTH_CLIENT_ID/SECRET set)." },
+      githubLinked: { type: "boolean", description: "Signed-in user has a linked GitHub account. Passive status only — never gates UI controls." },
+      githubLogin: { type: ["string", "null"], description: "GitHub login of the linked account, null when unlinked." },
     },
-    required: ["authEnabled", "user"],
+    required: ["authEnabled", "user", "githubOauthEnabled", "githubLinked", "githubLogin"],
   },
   AppUser: {
     type: "object",
@@ -667,6 +749,16 @@ const components: Record<string, JsonSchema> = {
   CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "string" } } }, required: ["labels", "milestones"] },
   WorkspaceConfig: { type: "object", additionalProperties: true },
   WorkspaceConfigPatch: { type: "object", additionalProperties: true },
+  Workspace: {
+    type: "object",
+    properties: {
+      id: { type: "integer" },
+      slug: { type: "string" },
+      name: { type: "string" },
+      archivedAt: { type: "string", nullable: true },
+    },
+    required: ["id", "slug", "name", "archivedAt"],
+  },
   Account: { type: "object", additionalProperties: true },
   AccountDetail: { type: "object", additionalProperties: true },
   AccountAiRead: { type: "object", additionalProperties: true },

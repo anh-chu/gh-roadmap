@@ -72,6 +72,8 @@ All config is env vars (see `.env.example` for the annotated list). Highlights:
 | `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | OpenAI-compatible endpoint for AI surfaces. Unset → AI routes 503 and the UI hides them. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Set both to require Google sign-in. Leave blank for single-user localhost mode. |
 | `ALLOWED_EMAIL_DOMAIN` / `ADMIN_EMAILS` / `SESSION_SECRET` | Domain whitelist, admin gating, cookie signing. Optional. |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Set both for per-user GitHub write identity (writes act as the caller's GitHub account). Requires Google login. Optional. |
+| `TOKEN_ENC_KEY` | 32-byte key (hex/base64) encrypting stored user GitHub tokens at rest. Required when GitHub OAuth is set. |
 | `DB_PATH` | SQLite file location. Defaults to `./data/roadmap.db`. |
 
 ### Auth modes
@@ -91,6 +93,19 @@ export/import). Newly signed-in users default to **viewer**; an admin promotes t
 header **Users** panel (`GET /api/users`, `PATCH /api/users/:email/role`). With auth off the
 role system is dormant — the local user is admin. Viewer write affordances are hidden in the
 UI; the server enforces regardless.
+
+### Per-user GitHub write identity (team mode, optional)
+
+By default every GitHub write goes through the shared `GITHUB_TOKEN`. Set
+`GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` + `TOKEN_ENC_KEY` and user-initiated
+GitHub writes (issues, comments, Kanban moves, insight PRs) are made **as the caller's own
+GitHub account** instead. One-time setup: register a GitHub **OAuth App** (org-owned preferred)
+with callback URL `<app-origin>/api/github/callback`, scope `repo`. Each user connects once —
+either from the avatar menu ("Connect GitHub") or via the prompt that appears the first time
+a write is attempted (`409 github_not_linked`). Tokens are validated against the target repo
+before being stored AES-256-GCM-encrypted; a revoked token auto-unlinks on the next write
+(`409 github_reauth_required`). Reads and background sync keep using the service token.
+Requires Google login; the server refuses to boot on partial config.
 
 ### GitHub auth: App vs PAT
 
@@ -135,7 +150,7 @@ Route groups (`api/src/routes/`):
 | PM actions | quick-action endpoints surfaced in the UI |
 | Repo files | read-only viewer for repo files referenced in issues |
 | Data | full-workspace export / import (backup + restore) |
-| Auth | Google OAuth login / callback / logout / session |
+| Auth | Google OAuth login / callback / logout / session; GitHub link / callback / unlink (write identity) |
 | Webhook | HMAC-verified GitHub receiver |
 
 ## Rate-limit defenses
@@ -149,7 +164,6 @@ Route groups (`api/src/routes/`):
 
 See [`CLAUDE.md`](CLAUDE.md) §8 for the full candidate-work list. Notable open items:
 
-- GitHub OAuth write-identity (so team writes are attributed per-user, not to one shared token)
 - GH App private-key flow (minting installation tokens in-app)
 - Conditional ETag caching layer
 - Source connectors (Slack / gdoc / Jira) feeding the capture API

@@ -45,6 +45,7 @@ import type {
   RangeGranularity,
   RoadmapPatchBody,
   SyncResult,
+  Workspace,
   WorkspaceConfig,
 } from "../../../shared/types";
 import { pullFromApi } from "../../../shared/types";
@@ -56,13 +57,28 @@ export interface IssueCreatePayload {
   assignee?: string | null;
 }
 
+// GitHub write-identity gate (layer 3). The server is the ONLY gate: write buttons stay
+// live everywhere, and a 409 github_not_linked / github_reauth_required from any write
+// raises one app-level Connect prompt here — no per-action wiring, no disabled states.
+export type GithubConnectReason = "github_not_linked" | "github_reauth_required";
+let githubConnectHandler: ((reason: GithubConnectReason) => void) | null = null;
+export function setGithubConnectHandler(fn: ((reason: GithubConnectReason) => void) | null): void {
+  githubConnectHandler = fn;
+}
+
 async function jsonOrThrow<T>(r: Response): Promise<T> {
   if (!r.ok) {
     let detail = "";
+    let errCode = "";
     try {
       const body = (await r.clone().json()) as { error?: string; detail?: string };
+      errCode = body.error ?? "";
       detail = body.detail ? ` — ${body.detail}` : body.error ? ` — ${body.error}` : "";
     } catch { /* non-JSON body */ }
+    if (r.status === 409 && (errCode === "github_not_linked" || errCode === "github_reauth_required")) {
+      githubConnectHandler?.(errCode);
+      throw new Error("GitHub account connection required");
+    }
     throw new Error(`${r.status} ${r.statusText}${detail}`);
   }
   return (await r.json()) as T;
@@ -85,6 +101,12 @@ export async function fetchAuthMe(): Promise<AuthMe> {
 
 export async function logout(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" });
+}
+
+// Disconnect the caller's linked GitHub account (write-identity layer 3).
+export async function unlinkGithub(): Promise<void> {
+  const r = await fetch("/api/github/unlink", { method: "POST" });
+  await jsonOrThrow<{ ok: boolean }>(r);
 }
 
 // Role management (admin-only — the Users panel in the header).
@@ -208,6 +230,38 @@ export async function patchConfig(payload: {
     body: JSON.stringify(payload),
   });
   return jsonOrThrow<WorkspaceConfig>(r);
+}
+
+export async function fetchWorkspaces(): Promise<{ workspaces: Workspace[]; activeId: number }> {
+  const r = await fetch("/api/workspaces");
+  return jsonOrThrow<{ workspaces: Workspace[]; activeId: number }>(r);
+}
+
+export async function setActiveWorkspace(id: number): Promise<Workspace> {
+  const r = await fetch("/api/workspaces/active", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  return jsonOrThrow<Workspace>(r);
+}
+
+export async function createWorkspace(slug: string, name: string): Promise<Workspace> {
+  const r = await fetch("/api/workspaces", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ slug, name }),
+  });
+  return jsonOrThrow<Workspace>(r);
+}
+
+export async function patchWorkspace(id: number, patch: { name?: string; archived?: boolean }): Promise<Workspace> {
+  const r = await fetch(`/api/workspaces/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return jsonOrThrow<Workspace>(r);
 }
 
 export async function fetchProjects(): Promise<ProjectSummary[]> {

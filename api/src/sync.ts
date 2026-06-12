@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { db, getKv, setKv } from "./db.js";
 import { upsertSnapshot } from "./health.js";
+import { listWorkspaces } from "./workspace.js";
 import {
   fetchAllIssues,
   fetchAllPulls,
@@ -253,10 +254,11 @@ export function scheduleReconcile(delayMs = 10_000): void {
   }, delayMs);
 }
 
-// Daily health snapshot — captured per UTC day. Upserts so a same-day call refreshes
-// the row, and the timeseries always has the latest read for "today".
-export function runDailySnapshot(): ReturnType<typeof upsertSnapshot> {
-  return upsertSnapshot();
+// Daily health snapshot — captured per UTC day, one row per non-archived workspace.
+// Upserts so a same-day call refreshes the row, and the timeseries always has the
+// latest read for "today".
+export function runDailySnapshot(): { snapshots: ReturnType<typeof upsertSnapshot>[] } {
+  return { snapshots: listWorkspaces().map((ws) => upsertSnapshot(ws.id)) };
 }
 
 // GitHub signs webhook bodies with HMAC-SHA256 (X-Hub-Signature-256: "sha256=<hex>").

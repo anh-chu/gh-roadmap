@@ -38,8 +38,8 @@ function rowToApi(r: PullRow): ApiPull {
 
 // Master-filter pass rule: drop PR if it has linked issues AND none of them pass the filter.
 // If it has no linked issues, pass through.
-function buildAllowedIssueSet(): Set<number> | null {
-  const mf = masterFilterSql(getMasterFilter());
+function buildAllowedIssueSet(workspaceId: number): Set<number> | null {
+  const mf = masterFilterSql(getMasterFilter(workspaceId));
   if (!mf) return null; // no filter — everything allowed
   const rows = db()
     .prepare(`SELECT number FROM issues i WHERE ${mf.sql}`)
@@ -48,8 +48,8 @@ function buildAllowedIssueSet(): Set<number> | null {
 }
 
 export async function pullsRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/pulls", async () => {
-    const allowed = buildAllowedIssueSet();
+  app.get("/api/pulls", async (req) => {
+    const allowed = buildAllowedIssueSet(req.workspaceId);
     const rows = db()
       .prepare(
         `SELECT number, title, state, merged, merged_at, author, created_at, updated_at, closed_at, linked_issues

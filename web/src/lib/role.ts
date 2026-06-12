@@ -10,9 +10,9 @@ export function setSessionRole(r: Role): void {
 
 // Viewer UX rule: a viewer's write is NEVER achievable, so write affordances are hidden or
 // disabled outright (dead buttons that always 403 are bad UX). This is deliberately the
-// OPPOSITE of the future GitHub write-identity pattern, where an unlinked editor's write IS
-// achievable after connecting — those buttons stay live and prompt to connect. Don't "unify"
-// the two patterns.
+// OPPOSITE of the GitHub write-identity pattern (lib/api.ts setGithubConnectHandler), where an
+// unlinked editor's write IS achievable after connecting — those buttons stay live and the
+// shared 409 interceptor prompts to connect. Don't "unify" the two patterns.
 export function canEdit(): boolean {
   return role !== "viewer";
 }

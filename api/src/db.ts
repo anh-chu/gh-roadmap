@@ -86,14 +86,16 @@ export function initDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_comments_issue ON comments(issue_number);
 
     CREATE TABLE IF NOT EXISTS roadmap_meta (
-      issue_number   INTEGER PRIMARY KEY,
+      workspace_id   INTEGER NOT NULL,
+      issue_number   INTEGER NOT NULL,
       planned_month  TEXT,
       planned_week   TEXT,
       ren            TEXT, -- deprecated: R/E/N taxonomy removed; column kept (SQLite drop is destructive), reads/writes are no-ops
       roadmap_notes  TEXT,
       position       INTEGER,
       is_todo        INTEGER NOT NULL DEFAULT 0,
-      app_updated_at TEXT NOT NULL
+      app_updated_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, issue_number)
     );
 
     CREATE TABLE IF NOT EXISTS sync_log (
@@ -181,11 +183,13 @@ export function initDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_issue_events_issue_created ON issue_events(issue_number, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS health_snapshots (
-      snapshot_date  TEXT PRIMARY KEY,
+      workspace_id   INTEGER NOT NULL,
+      snapshot_date  TEXT NOT NULL,
       confidence     INTEGER,
       sample_size    INTEGER NOT NULL,
       at_risk_json   TEXT NOT NULL,
-      computed_at    TEXT NOT NULL
+      computed_at    TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, snapshot_date)
     );
 
     CREATE TABLE IF NOT EXISTS ai_summaries (
@@ -303,7 +307,10 @@ export function initDb(path: string): Database.Database {
     );
 
     CREATE TABLE IF NOT EXISTS workspace_config (
-      id                      INTEGER PRIMARY KEY CHECK (id = 1),
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug                    TEXT NOT NULL UNIQUE,
+      name                    TEXT NOT NULL,
+      archived_at             TEXT,
       bucketing_field         TEXT NOT NULL DEFAULT 'label',
       bucketing_value         TEXT NOT NULL DEFAULT 'area',
       master_filter_include   TEXT NOT NULL DEFAULT '[]',
@@ -336,6 +343,14 @@ export function initDb(path: string): Database.Database {
   if (!new Set(hsCols.map((c) => c.name)).has("on_time")) {
     db.exec("ALTER TABLE health_snapshots ADD COLUMN on_time INTEGER");
   }
+
+  // Per-user GitHub write identity (layer 3): connection columns on users. Older DBs
+  // pre-date them; null github_login = unlinked.
+  const userCols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  const userColNames = new Set(userCols.map((c) => c.name));
+  if (!userColNames.has("github_login")) db.exec("ALTER TABLE users ADD COLUMN github_login TEXT");
+  if (!userColNames.has("github_token_enc")) db.exec("ALTER TABLE users ADD COLUMN github_token_enc TEXT");
+  if (!userColNames.has("github_linked_at")) db.exec("ALTER TABLE users ADD COLUMN github_linked_at TEXT");
 
   // PM-actions cache reuses ai_insights but needs a candidate-set hash to invalidate when
   // the underlying issues change. Older DBs pre-date it.
@@ -501,9 +516,138 @@ export function initDb(path: string): Database.Database {
     db.exec("ALTER TABLE roadmap_meta ADD COLUMN is_todo INTEGER NOT NULL DEFAULT 0");
   }
 
+  // Multi-pod: de-singleton workspace_config (drop CHECK (id = 1), add slug/name/archived_at)
+  // and re-key roadmap_meta / health_snapshots to (workspace_id, ...). SQLite can't drop a
+  // CHECK or change a PK in place, so each is a guarded table rebuild; all three run in one
+  // transaction. Guards: the sentinel column (slug / workspace_id) absent on the old table.
+  // Existing rows become workspace 1 ('mht'). Explicit column lists — never positional.
+  const wcNeedsRebuild = !wcColNames.has("slug");
+  const rmNeedsRebuild = !rmColNames.has("workspace_id");
+  const hsNeedsRebuild = !new Set(hsCols.map((c) => c.name)).has("workspace_id");
+  if (wcNeedsRebuild || rmNeedsRebuild || hsNeedsRebuild) {
+    db.exec("BEGIN");
+    try {
+      if (wcNeedsRebuild) {
+        db.exec(`
+          CREATE TABLE workspace_config_new (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug                    TEXT NOT NULL UNIQUE,
+            name                    TEXT NOT NULL,
+            archived_at             TEXT,
+            bucketing_field         TEXT NOT NULL DEFAULT 'label',
+            bucketing_value         TEXT NOT NULL DEFAULT 'area',
+            master_filter_include   TEXT NOT NULL DEFAULT '[]',
+            master_filter_exclude   TEXT NOT NULL DEFAULT '[]',
+            range_granularity       TEXT NOT NULL DEFAULT 'month',
+            range_count             INTEGER NOT NULL DEFAULT 3,
+            range_offset            INTEGER NOT NULL DEFAULT 0,
+            stall_days              INTEGER NOT NULL DEFAULT 7,
+            hot_comments            INTEGER NOT NULL DEFAULT 3,
+            hot_window_hours        INTEGER NOT NULL DEFAULT 48,
+            todo_stale_days         INTEGER NOT NULL DEFAULT 14,
+            pin_meta_cols           INTEGER NOT NULL DEFAULT 1,
+            flow_shipping_hours     INTEGER NOT NULL DEFAULT 24,
+            flow_review_days        INTEGER NOT NULL DEFAULT 3,
+            flow_code_days          INTEGER NOT NULL DEFAULT 3,
+            flow_discussion_days    INTEGER NOT NULL DEFAULT 5,
+            flow_stall_days         INTEGER NOT NULL DEFAULT 14,
+            flow_cold_days          INTEGER NOT NULL DEFAULT 60,
+            flow_fresh_days         INTEGER NOT NULL DEFAULT 7,
+            predict_pr_stale_days   INTEGER NOT NULL DEFAULT 3,
+            predict_pr_min_age      INTEGER NOT NULL DEFAULT 7,
+            predict_review_wait_days INTEGER NOT NULL DEFAULT 2,
+            predict_promise_confidence_min INTEGER NOT NULL DEFAULT 60,
+            predict_reply_overdue_hours INTEGER NOT NULL DEFAULT 24,
+            pod_last_seen_at        TEXT,
+            ai_model_summary        TEXT,
+            ai_model_progress       TEXT,
+            ai_model_extract        TEXT,
+            updated_at              TEXT NOT NULL
+          );
+          INSERT INTO workspace_config_new (
+            id, slug, name, archived_at,
+            bucketing_field, bucketing_value, master_filter_include, master_filter_exclude,
+            range_granularity, range_count, range_offset, stall_days, hot_comments,
+            hot_window_hours, todo_stale_days, pin_meta_cols,
+            flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days,
+            flow_stall_days, flow_cold_days, flow_fresh_days,
+            predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days,
+            predict_promise_confidence_min, predict_reply_overdue_hours,
+            pod_last_seen_at, ai_model_summary, ai_model_progress, ai_model_extract, updated_at
+          )
+          SELECT
+            id, 'mht', 'MHT', NULL,
+            bucketing_field, bucketing_value, master_filter_include, master_filter_exclude,
+            range_granularity, range_count, range_offset, stall_days, hot_comments,
+            hot_window_hours, todo_stale_days, pin_meta_cols,
+            flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days,
+            flow_stall_days, flow_cold_days, flow_fresh_days,
+            predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days,
+            predict_promise_confidence_min, predict_reply_overdue_hours,
+            pod_last_seen_at, ai_model_summary, ai_model_progress, ai_model_extract, updated_at
+          FROM workspace_config;
+          DROP TABLE workspace_config;
+          ALTER TABLE workspace_config_new RENAME TO workspace_config;
+        `);
+      }
+      if (rmNeedsRebuild) {
+        db.exec(`
+          CREATE TABLE roadmap_meta_new (
+            workspace_id   INTEGER NOT NULL,
+            issue_number   INTEGER NOT NULL,
+            planned_month  TEXT,
+            planned_week   TEXT,
+            ren            TEXT,
+            roadmap_notes  TEXT,
+            position       INTEGER,
+            is_todo        INTEGER NOT NULL DEFAULT 0,
+            app_updated_at TEXT NOT NULL,
+            PRIMARY KEY (workspace_id, issue_number)
+          );
+          INSERT INTO roadmap_meta_new (
+            workspace_id, issue_number, planned_month, planned_week, ren,
+            roadmap_notes, position, is_todo, app_updated_at
+          )
+          SELECT
+            1, issue_number, planned_month, planned_week, ren,
+            roadmap_notes, position, is_todo, app_updated_at
+          FROM roadmap_meta;
+          DROP TABLE roadmap_meta;
+          ALTER TABLE roadmap_meta_new RENAME TO roadmap_meta;
+        `);
+      }
+      if (hsNeedsRebuild) {
+        db.exec(`
+          CREATE TABLE health_snapshots_new (
+            workspace_id   INTEGER NOT NULL,
+            snapshot_date  TEXT NOT NULL,
+            confidence     INTEGER,
+            sample_size    INTEGER NOT NULL,
+            at_risk_json   TEXT NOT NULL,
+            computed_at    TEXT NOT NULL,
+            on_time        INTEGER,
+            PRIMARY KEY (workspace_id, snapshot_date)
+          );
+          INSERT INTO health_snapshots_new (
+            workspace_id, snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time
+          )
+          SELECT
+            1, snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time
+          FROM health_snapshots;
+          DROP TABLE health_snapshots;
+          ALTER TABLE health_snapshots_new RENAME TO health_snapshots;
+        `);
+      }
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
   db.exec(`
-    INSERT OR IGNORE INTO workspace_config (id, bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, stall_days, hot_comments, hot_window_hours, todo_stale_days, pin_meta_cols, updated_at)
-      VALUES (1, 'label', 'area', '[]', '[]', 'month', 3, 0, 7, 3, 48, 14, 1, datetime('now'));
+    INSERT OR IGNORE INTO workspace_config (id, slug, name, bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, stall_days, hot_comments, hot_window_hours, todo_stale_days, pin_meta_cols, updated_at)
+      VALUES (1, 'mht', 'MHT', 'label', 'area', '[]', '[]', 'month', 3, 0, 7, 3, 48, 14, 1, datetime('now'));
   `);
 
   _db = db;
@@ -535,6 +679,9 @@ export type UserRow = {
   role: "viewer" | "editor" | "admin";
   created_at: string;
   updated_at: string;
+  github_login: string | null;
+  github_token_enc: string | null;
+  github_linked_at: string | null;
 };
 
 export function getUser(email: string): UserRow | undefined {
@@ -569,6 +716,35 @@ export function setUserRole(email: string, role: UserRow["role"]): void {
   db()
     .prepare("UPDATE users SET role = ?, updated_at = ? WHERE email = ?")
     .run(role, new Date().toISOString(), email.toLowerCase());
+}
+
+// ---- GitHub connection (per-user write identity — layer 3) ----------------------------
+
+export function getUserGithub(
+  email: string,
+): { github_login: string | null; github_token_enc: string | null; github_linked_at: string | null } | undefined {
+  return db()
+    .prepare("SELECT github_login, github_token_enc, github_linked_at FROM users WHERE email = ?")
+    .get(email.toLowerCase()) as
+    | { github_login: string | null; github_token_enc: string | null; github_linked_at: string | null }
+    | undefined;
+}
+
+export function linkUserGithub(email: string, login: string, tokenEnc: string): void {
+  const now = new Date().toISOString();
+  db()
+    .prepare(
+      "UPDATE users SET github_login = ?, github_token_enc = ?, github_linked_at = ?, updated_at = ? WHERE email = ?",
+    )
+    .run(login, tokenEnc, now, now, email.toLowerCase());
+}
+
+export function unlinkUserGithub(email: string): void {
+  db()
+    .prepare(
+      "UPDATE users SET github_login = NULL, github_token_enc = NULL, github_linked_at = NULL, updated_at = ? WHERE email = ?",
+    )
+    .run(new Date().toISOString(), email.toLowerCase());
 }
 
 export function listUsers(): UserRow[] {

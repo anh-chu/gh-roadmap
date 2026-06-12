@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../../../shared/types";
-import { logout } from "../lib/api";
+import { logout, unlinkGithub } from "../lib/api";
+import { useAuth } from "../hooks/useAuth";
 
 // Avatar button → popout dropdown with the signed-in identity and an explicit Sign out button.
 // Only rendered when auth is enabled (authUser is non-null).
@@ -38,6 +39,11 @@ export function UserMenu({ user }: { user: AuthUser }): JSX.Element {
 
   const initial = user.name?.[0]?.toUpperCase() ?? user.email[0]?.toUpperCase() ?? "?";
 
+  // GitHub write-identity link state — PASSIVE status only. Write buttons elsewhere are
+  // never gated on this; the shared 409 interceptor raises the connect prompt on attempt.
+  const { me } = useAuth();
+  const ghEnabled = me?.githubOauthEnabled ?? false;
+
   return (
     <>
       <button ref={btnRef} className="av" onClick={handleOpen} title={user.email}>
@@ -57,6 +63,29 @@ export function UserMenu({ user }: { user: AuthUser }): JSX.Element {
               {user.isAdmin && " · admin"}
             </div>
           </div>
+          {ghEnabled && (
+            <div className="pop-section">
+              {me?.githubLinked ? (
+                <div className="scope-help" style={{ fontSize: 11, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>GitHub: @{me.githubLogin}</span>
+                  <button
+                    className="btn"
+                    onClick={() => { void unlinkGithub().then(() => window.location.reload()); }}
+                  >
+                    <span>Disconnect</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="btn"
+                  style={{ width: "100%", justifyContent: "center" }}
+                  onClick={() => { window.location.href = "/api/github/login"; }}
+                >
+                  <span>Connect GitHub</span>
+                </button>
+              )}
+            </div>
+          )}
           <div className="pop-section">
             <button
               className="btn"

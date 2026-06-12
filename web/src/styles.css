@@ -1974,6 +1974,91 @@ select.field-input {
 }
 .pop-reset:hover { color: var(--ink); text-decoration: underline; }
 
+/* ─────────────── WORKSPACE SWITCHER ─────────────── */
+.ws-switcher {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-left: 6px;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.12s;
+}
+.ws-switcher:hover { border-color: var(--border-2); }
+
+/* Pod switch menu (custom dropdown — hosts the admin "Manage pods…" item) */
+.ws-menu {
+  min-width: 160px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.ws-menu-item {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: left;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.ws-menu-item:hover { background: var(--surface-2); color: var(--ink); }
+.ws-menu-item.active { color: var(--ink); font-weight: 600; }
+.ws-menu-manage {
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  margin-top: 4px;
+  color: var(--ink-3);
+}
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.ws-row.archived { opacity: 0.45; }
+.ws-name-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.ws-name-input:disabled { background: transparent; }
+.ws-slug {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.ws-row-btn { font-size: 11px; padding: 3px 8px; }
+.ws-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ws-add-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
 /* ─────────────── SCOPE PILL ─────────────── */
 .scope-pill {
   font-family: var(--mono);

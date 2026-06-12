@@ -5,6 +5,7 @@ import { AiSettings } from "./AiSettings";
 import { DataSettings } from "./DataSettings";
 import { UserSettings } from "./UserSettings";
 import { UserMenu } from "./UserMenu";
+import { WorkspaceSwitcher } from "./WorkspaceSettings";
 import { canEdit } from "../lib/role";
 
 function relativeTime(iso: string | null): string {
@@ -52,7 +53,8 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         <div className="logo"></div>
         <span className="name">Roadmap</span>
         <span className="repo">katalon-studio/product</span>
-        <ScopePill config={config} onChange={onScopeChange} />
+        <WorkspaceSwitcher isAdmin={isAdmin} />
+        <ScopePill config={config} isAdmin={isAdmin} onChange={onScopeChange} />
       </div>
 
       <div className="meta">

@@ -57,6 +57,17 @@ function octo(): Octokit {
   return _octo;
 }
 
+// The shared service-token client. Reads and background jobs use this; write fns take an
+// explicit Octokit (caller passes serviceOctokit() today, a per-user client post-OAuth).
+export function serviceOctokit(): Octokit {
+  return octo();
+}
+
+// A throwaway client for a user's OAuth token. No caching — instantiate per call.
+export function octokitForToken(token: string): Octokit {
+  return new Octokit({ auth: token });
+}
+
 export function getRateLimitStatus(): RateLimit {
   return { ..._rate };
 }
@@ -489,7 +500,7 @@ async function resolveMilestoneNumber(title: string): Promise<number | null> {
   return null;
 }
 
-export async function updateIssue(num: number, patch: IssuePatch): Promise<GhIssue> {
+export async function updateIssue(octo: Octokit, num: number, patch: IssuePatch): Promise<GhIssue> {
   const params: Record<string, unknown> = {
     owner: _owner,
     repo: _repo,
@@ -509,7 +520,7 @@ export async function updateIssue(num: number, patch: IssuePatch): Promise<GhIss
     }
   }
 
-  const { data } = await octo().rest.issues.update(params as never);
+  const { data } = await octo.rest.issues.update(params as never);
   return {
     number: data.number,
     title: data.title,
@@ -533,7 +544,7 @@ export type IssueCreate = {
   assignee?: string | null;
 };
 
-export async function createIssue(input: IssueCreate): Promise<GhIssue> {
+export async function createIssue(octo: Octokit, input: IssueCreate): Promise<GhIssue> {
   const params: Record<string, unknown> = {
     owner: _owner,
     repo: _repo,
@@ -543,7 +554,7 @@ export async function createIssue(input: IssueCreate): Promise<GhIssue> {
   if (input.labels !== undefined) params.labels = input.labels;
   if (input.assignee) params.assignees = [input.assignee];
 
-  const { data } = await octo().rest.issues.create(params as never);
+  const { data } = await octo.rest.issues.create(params as never);
   return {
     number: data.number,
     title: data.title,
@@ -560,8 +571,8 @@ export async function createIssue(input: IssueCreate): Promise<GhIssue> {
   };
 }
 
-export async function createComment(num: number, body: string): Promise<GhComment> {
-  const { data } = await octo().rest.issues.createComment({
+export async function createComment(octo: Octokit, num: number, body: string): Promise<GhComment> {
+  const { data } = await octo.rest.issues.createComment({
     owner: _owner,
     repo: _repo,
     issue_number: num,
@@ -577,8 +588,8 @@ export async function createComment(num: number, body: string): Promise<GhCommen
   };
 }
 
-export async function updateComment(id: number, body: string): Promise<GhComment> {
-  const { data } = await octo().rest.issues.updateComment({
+export async function updateComment(octo: Octokit, id: number, body: string): Promise<GhComment> {
+  const { data } = await octo.rest.issues.updateComment({
     owner: _owner,
     repo: _repo,
     comment_id: id,
@@ -595,8 +606,8 @@ export async function updateComment(id: number, body: string): Promise<GhComment
   };
 }
 
-export async function deleteComment(id: number): Promise<void> {
-  await octo().rest.issues.deleteComment({
+export async function deleteComment(octo: Octokit, id: number): Promise<void> {
+  await octo.rest.issues.deleteComment({
     owner: _owner,
     repo: _repo,
     comment_id: id,
@@ -891,20 +902,21 @@ const CLEAR_FIELD_MUTATION = /* GraphQL */ `
 `;
 
 export async function updateProjectItemStatus(
+  octo: Octokit,
   projectNodeId: string,
   itemId: string,
   statusFieldId: string,
   optionId: string | null,
 ): Promise<void> {
   if (optionId === null) {
-    await octo().graphql(CLEAR_FIELD_MUTATION, {
+    await octo.graphql(CLEAR_FIELD_MUTATION, {
       projectId: projectNodeId,
       itemId,
       fieldId: statusFieldId,
     });
     return;
   }
-  await octo().graphql(UPDATE_STATUS_MUTATION, {
+  await octo.graphql(UPDATE_STATUS_MUTATION, {
     projectId: projectNodeId,
     itemId,
     fieldId: statusFieldId,
@@ -1124,8 +1136,7 @@ export async function fetchInsightBlob(sha: string): Promise<string> {
   return Buffer.from(data.content, (data.encoding as BufferEncoding) ?? "base64").toString("utf8");
 }
 
-export async function publishInsightPr(opts: PublishInsightOpts): Promise<PublishInsightResult> {
-  const o = octo();
+export async function publishInsightPr(o: Octokit, opts: PublishInsightOpts): Promise<PublishInsightResult> {
   const { owner, repo } = insightsRepo();
 
   const repoInfo = await o.rest.repos.get({ owner, repo });
@@ -1194,8 +1205,7 @@ async function fileSha(path: string, branch: string): Promise<string> {
 }
 
 // Branch off default, create the PR. Shared by delete/merge after their file ops run.
-async function openBranch(branchName: string): Promise<string> {
-  const o = octo();
+async function openBranch(o: Octokit, branchName: string): Promise<string> {
   const { owner, repo } = insightsRepo();
   const repoInfo = await o.rest.repos.get({ owner, repo });
   const defaultBranch = repoInfo.data.default_branch;
@@ -1205,10 +1215,9 @@ async function openBranch(branchName: string): Promise<string> {
 }
 
 // Open a PR that removes a single insight file.
-export async function deleteInsightPr(opts: DeleteInsightOpts): Promise<PublishInsightResult> {
-  const o = octo();
+export async function deleteInsightPr(o: Octokit, opts: DeleteInsightOpts): Promise<PublishInsightResult> {
   const { owner, repo } = insightsRepo();
-  const defaultBranch = await openBranch(opts.branchName);
+  const defaultBranch = await openBranch(o, opts.branchName);
 
   await o.rest.repos.deleteFile({
     owner,
@@ -1231,10 +1240,9 @@ export async function deleteInsightPr(opts: DeleteInsightOpts): Promise<PublishI
 }
 
 // Open a PR that rewrites the survivor file and deletes victim files in one branch.
-export async function mergeInsightsPr(opts: MergeInsightsOpts): Promise<PublishInsightResult> {
-  const o = octo();
+export async function mergeInsightsPr(o: Octokit, opts: MergeInsightsOpts): Promise<PublishInsightResult> {
   const { owner, repo } = insightsRepo();
-  const defaultBranch = await openBranch(opts.branchName);
+  const defaultBranch = await openBranch(o, opts.branchName);
 
   await o.rest.repos.createOrUpdateFileContents({
     owner,
@@ -1289,8 +1297,7 @@ export async function fetchInsightPrState(
 // (e.g. 405 not mergeable, 409 head changed). Caller maps the error for the PM.
 // After merging, deletes the head branch (GitHub doesn't auto-delete on squash unless the
 // repo opts in). Branch cleanup is best-effort — a failure there never fails the merge.
-export async function mergeInsightPr(prNumber: number): Promise<void> {
-  const o = octo();
+export async function mergeInsightPr(o: Octokit, prNumber: number): Promise<void> {
   const { owner, repo } = insightsRepo();
   const { data: pr } = await o.rest.pulls.get({ owner, repo, pull_number: prNumber });
   await o.rest.pulls.merge({
@@ -1313,8 +1320,7 @@ export async function mergeInsightPr(prNumber: number): Promise<void> {
 // Branch name isn't persisted at publish time, so we read it off the PR. If the
 // PR is already closed/gone we still try to clean the branch. Branch-delete
 // failures are non-fatal (branch may already be gone or protected).
-export async function closeInsightPr(prNumber: number): Promise<void> {
-  const o = octo();
+export async function closeInsightPr(o: Octokit, prNumber: number): Promise<void> {
   const { owner, repo } = insightsRepo();
   const { data: pr } = await o.rest.pulls.get({ owner, repo, pull_number: prNumber });
   if (pr.state !== "closed") {

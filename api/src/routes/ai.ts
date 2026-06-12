@@ -68,15 +68,15 @@ interface InsightRow {
   generated_at: string;
 }
 
-function disabled(reply: FastifyReply): FastifyReply {
-  return reply.code(503).send({ error: aiDisabledReason() });
+function disabled(reply: FastifyReply, workspaceId: number): FastifyReply {
+  return reply.code(503).send({ error: aiDisabledReason(workspaceId) });
 }
 
 function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
-function loadIssueForSummary(num: number): {
+function loadIssueForSummary(num: number, workspaceId: number): {
   issue: IssueRow;
   labels: string[];
   comments: CommentRow[];
@@ -94,7 +94,7 @@ function loadIssueForSummary(num: number): {
   } catch {
     /* ignore */
   }
-  if (!passesMasterFilter(labels, getMasterFilter())) return null;
+  if (!passesMasterFilter(labels, getMasterFilter(workspaceId))) return null;
   const comments = db()
     .prepare(
       "SELECT id, author, body, created_at FROM comments WHERE issue_number = ? ORDER BY created_at ASC",
@@ -154,13 +154,13 @@ function buildSummaryInput(
   };
 }
 
-async function generateAndStoreSummary(num: number): Promise<AiSummary | null> {
-  const loaded = loadIssueForSummary(num);
+async function generateAndStoreSummary(num: number, workspaceId: number): Promise<AiSummary | null> {
+  const loaded = loadIssueForSummary(num, workspaceId);
   if (!loaded) return null;
   const { issue, labels, comments, pulls, lastCommentId } = loaded;
   const sourceHash = computeSourceHash(issue, labels, comments.length, lastCommentId);
   const input = buildSummaryInput(issue, labels, comments, pulls);
-  const { summary, model, effort } = await summarizeIssue(input);
+  const { summary, model, effort } = await summarizeIssue(input, workspaceId);
   const generatedAt = new Date().toISOString();
   db()
     .prepare(
@@ -248,12 +248,12 @@ function currentWeekKey(d = new Date()): string {
   return `${dt.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
-function computeFlowDistribution(): Record<string, number> {
+function computeFlowDistribution(workspaceId: number): Record<string, number> {
   const t = db()
     .prepare(
-      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = 1",
+      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = ?",
     )
-    .get() as ThresholdRow | undefined;
+    .get(workspaceId) as ThresholdRow | undefined;
   const thresholds: FlowThresholdsResolved = {
     shippingHours: t?.flow_shipping_hours ?? 24,
     reviewActivityDays: t?.flow_review_days ?? 3,
@@ -265,7 +265,7 @@ function computeFlowDistribution(): Record<string, number> {
   };
 
   // Master-filter scoped open issues only — same shape as routes/flow.ts.
-  const mf = getMasterFilter();
+  const mf = getMasterFilter(workspaceId);
   const issues = db()
     .prepare(
       `SELECT i.number, i.state, i.created_at, i.updated_at, i.assignee FROM issues i WHERE i.state = 'open'`,
@@ -375,13 +375,13 @@ function computeFlowDistribution(): Record<string, number> {
   return dist;
 }
 
-async function generateAndStoreProgress(): Promise<AiProgress> {
-  const mf = getMasterFilter();
-  const { confidence, sampleSize } = computeConfidence(mf);
-  const atRisk = computeAtRisk(mf);
-  const flowDistribution = computeFlowDistribution();
-  const schedule = computeScheduleHealth(mf);
-  const roadmap = computeRoadmapTimeline(mf);
+async function generateAndStoreProgress(workspaceId: number): Promise<AiProgress> {
+  const mf = getMasterFilter(workspaceId);
+  const { confidence, sampleSize } = computeConfidence(workspaceId, mf);
+  const atRisk = computeAtRisk(workspaceId, mf);
+  const flowDistribution = computeFlowDistribution(workspaceId);
+  const schedule = computeScheduleHealth(workspaceId, mf);
+  const roadmap = computeRoadmapTimeline(workspaceId, mf);
   const input: ProgressInput = {
     confidence,
     confidenceLabel: confidenceLabel(confidence),
@@ -393,7 +393,7 @@ async function generateAndStoreProgress(): Promise<AiProgress> {
     schedule,
     roadmap,
   };
-  const { analysis, model } = await analyzeProgress(input);
+  const { analysis, model } = await analyzeProgress(input, workspaceId);
   const generatedAt = new Date().toISOString();
   db()
     .prepare(
@@ -404,7 +404,7 @@ async function generateAndStoreProgress(): Promise<AiProgress> {
          model=excluded.model,
          generated_at=excluded.generated_at`,
     )
-    .run("progress", analysis, model, generatedAt);
+    .run(`progress:${workspaceId}`, analysis, model, generatedAt);
   return { analysis, model, generatedAt, fromCache: false };
 }
 
@@ -414,8 +414,8 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { num: string } }>(
     "/api/ai/issue-summary/:num",
     async (req, reply): Promise<AiSummary | undefined> => {
-      if (!isAiEnabled()) {
-        disabled(reply);
+      if (!isAiEnabled(req.workspaceId)) {
+        disabled(reply, req.workspaceId);
         return;
       }
       const num = Number(req.params.num);
@@ -423,7 +423,7 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         reply.code(400).send({ error: "invalid issue number" });
         return;
       }
-      const loaded = loadIssueForSummary(num);
+      const loaded = loadIssueForSummary(num, req.workspaceId);
       if (!loaded) {
         reply.code(404).send({ error: "issue not in scope" });
         return;
@@ -445,7 +445,7 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         };
       }
       try {
-        const result = await generateAndStoreSummary(num);
+        const result = await generateAndStoreSummary(num, req.workspaceId);
         if (!result) {
           reply.code(404).send({ error: "issue not in scope" });
           return;
@@ -465,8 +465,8 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { num: string } }>(
     "/api/ai/issue-summary/:num/refresh",
     async (req, reply): Promise<AiSummary | undefined> => {
-      if (!isAiEnabled()) {
-        disabled(reply);
+      if (!isAiEnabled(req.workspaceId)) {
+        disabled(reply, req.workspaceId);
         return;
       }
       const num = Number(req.params.num);
@@ -475,7 +475,7 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
       try {
-        const result = await generateAndStoreSummary(num);
+        const result = await generateAndStoreSummary(num, req.workspaceId);
         if (!result) {
           reply.code(404).send({ error: "issue not in scope" });
           return;
@@ -495,13 +495,13 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     "/api/ai/progress",
     async (req, reply): Promise<AiProgress | undefined> => {
-      if (!isAiEnabled()) {
-        disabled(reply);
+      if (!isAiEnabled(req.workspaceId)) {
+        disabled(reply, req.workspaceId);
         return;
       }
       const cached = db()
-        .prepare("SELECT content, model, generated_at FROM ai_insights WHERE kind = 'progress'")
-        .get() as InsightRow | undefined;
+        .prepare("SELECT content, model, generated_at FROM ai_insights WHERE kind = ?")
+        .get(`progress:${req.workspaceId}`) as InsightRow | undefined;
       if (cached) {
         const age = Date.now() - Date.parse(cached.generated_at);
         if (Number.isFinite(age) && age < PROGRESS_TTL_MS) {
@@ -514,7 +514,7 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         }
       }
       try {
-        return await generateAndStoreProgress();
+        return await generateAndStoreProgress(req.workspaceId);
       } catch (err) {
         req.log.error({ err }, "ai progress failed");
         reply.code(503).send({
@@ -529,12 +529,12 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     "/api/ai/progress/refresh",
     async (req, reply): Promise<AiProgress | undefined> => {
-      if (!isAiEnabled()) {
-        disabled(reply);
+      if (!isAiEnabled(req.workspaceId)) {
+        disabled(reply, req.workspaceId);
         return;
       }
       try {
-        return await generateAndStoreProgress();
+        return await generateAndStoreProgress(req.workspaceId);
       } catch (err) {
         req.log.error({ err }, "ai progress refresh failed");
         reply.code(503).send({

@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAccountsForIssues } from "./insights.js";
 import { db } from "./db.js";
+import { defaultWorkspaceId } from "./workspace.js";
 import type { RoadmapTimeline } from "./health.js";
 import type { EffortRating, PmActionItem, RiskItem, ScheduleHealth } from "../../shared/types.js";
 
@@ -44,13 +45,13 @@ type TaskModelRow = {
   ai_model_extract: string | null;
 };
 
-function readTaskModels(): TaskModelRow {
+function readTaskModels(workspaceId: number = defaultWorkspaceId()): TaskModelRow {
   try {
     const row = db()
       .prepare(
-        "SELECT ai_model_summary, ai_model_progress, ai_model_extract FROM workspace_config WHERE id = 1",
+        "SELECT ai_model_summary, ai_model_progress, ai_model_extract FROM workspace_config WHERE id = ?",
       )
-      .get() as TaskModelRow | undefined;
+      .get(workspaceId) as TaskModelRow | undefined;
     return row ?? { ai_model_summary: null, ai_model_progress: null, ai_model_extract: null };
   } catch {
     // DB not initialised yet — treat as no overrides.
@@ -64,11 +65,11 @@ function nonEmpty(s: string | null | undefined): string | null {
   return t.length > 0 ? t : null;
 }
 
-function checkConfig(): string | null {
+function checkConfig(workspaceId?: number): string | null {
   const base = process.env.AI_BASE_URL;
   if (!base) return "AI not configured — set AI_BASE_URL";
   const envModel = nonEmpty(process.env.AI_MODEL);
-  const row = readTaskModels();
+  const row = readTaskModels(workspaceId);
   const anyOverride =
     nonEmpty(row.ai_model_summary) || nonEmpty(row.ai_model_progress) || nonEmpty(row.ai_model_extract);
   if (!envModel && !anyOverride) return "AI not configured — set AI_MODEL or a per-task override";
@@ -77,8 +78,8 @@ function checkConfig(): string | null {
 
 // Re-evaluate on every call: env is stable but per-task DB overrides change at runtime,
 // so a previously-disabled state may flip to enabled once a user sets an override.
-function currentReason(): string | null {
-  const reason = checkConfig();
+function currentReason(workspaceId?: number): string | null {
+  const reason = checkConfig(workspaceId);
   if (reason !== _disabledReason) {
     _disabledReason = reason;
     if (reason) {
@@ -89,16 +90,16 @@ function currentReason(): string | null {
   return reason;
 }
 
-export function isAiEnabled(): boolean {
-  return currentReason() === null;
+export function isAiEnabled(workspaceId?: number): boolean {
+  return currentReason(workspaceId) === null;
 }
 
-export function aiDisabledReason(): string {
-  return currentReason() ?? "AI disabled";
+export function aiDisabledReason(workspaceId?: number): string {
+  return currentReason(workspaceId) ?? "AI disabled";
 }
 
-function client(): OpenAI {
-  if (!isAiEnabled()) throw new Error(aiDisabledReason());
+function client(workspaceId?: number): OpenAI {
+  if (!isAiEnabled(workspaceId)) throw new Error(aiDisabledReason(workspaceId));
   if (_client === null) {
     _client = new OpenAI({
       baseURL: process.env.AI_BASE_URL,
@@ -112,8 +113,8 @@ export function aiModel(): string {
   return process.env.AI_MODEL ?? "";
 }
 
-export function aiModelFor(task: AiTask): string {
-  const row = readTaskModels();
+export function aiModelFor(task: AiTask, workspaceId?: number): string {
+  const row = readTaskModels(workspaceId);
   const override =
     task === "summary"
       ? nonEmpty(row.ai_model_summary)
@@ -264,8 +265,8 @@ function buildProgressUserText(input: ProgressInput): string {
   return lines.join("\n");
 }
 
-async function callChat(system: string, user: string, model: string): Promise<string> {
-  const resp = await client().chat.completions.create({
+async function callChat(system: string, user: string, model: string, workspaceId?: number): Promise<string> {
+  const resp = await client(workspaceId).chat.completions.create({
     model,
     messages: [
       { role: "system", content: system },
@@ -301,18 +302,20 @@ function splitEffort(text: string): { summary: string; effort: EffortRating | nu
 
 export async function summarizeIssue(
   input: IssueSummaryInput,
+  workspaceId?: number,
 ): Promise<{ summary: string; model: string; effort: EffortRating | null }> {
-  const model = aiModelFor("summary");
-  const raw = await callChat(SUMMARY_SYSTEM, buildIssueUserText(input), model);
+  const model = aiModelFor("summary", workspaceId);
+  const raw = await callChat(SUMMARY_SYSTEM, buildIssueUserText(input), model, workspaceId);
   const { summary, effort } = splitEffort(raw);
   return { summary, model, effort };
 }
 
 export async function analyzeProgress(
   input: ProgressInput,
+  workspaceId?: number,
 ): Promise<{ analysis: string; model: string }> {
-  const model = aiModelFor("progress");
-  const analysis = await callChat(PROGRESS_SYSTEM, buildProgressUserText(input), model);
+  const model = aiModelFor("progress", workspaceId);
+  const analysis = await callChat(PROGRESS_SYSTEM, buildProgressUserText(input), model, workspaceId);
   return { analysis, model };
 }
 
@@ -381,12 +384,13 @@ export function applyPmActionRanking(
 
 export async function rankPmActions(
   candidates: PmActionItem[],
+  workspaceId?: number,
 ): Promise<{ ranking: PmActionRank[]; model: string }> {
-  const model = aiModelFor("progress");
+  const model = aiModelFor("progress", workspaceId);
   const user = buildPmActionsUserText(candidates);
   let text = "";
   try {
-    const resp = await client().chat.completions.create({
+    const resp = await client(workspaceId).chat.completions.create({
       model,
       response_format: { type: "json_object" },
       messages: [
@@ -396,7 +400,7 @@ export async function rankPmActions(
     });
     text = resp.choices[0]?.message?.content ?? "";
   } catch {
-    const resp = await client().chat.completions.create({
+    const resp = await client(workspaceId).chat.completions.create({
       model,
       messages: [
         { role: "system", content: PM_ACTIONS_SYSTEM },
@@ -446,9 +450,10 @@ function buildAccountReadUserText(input: AccountReadInput): string {
 // Uses "summary" model for account-read — avoids schema changes, same quality tier.
 export async function accountRead(
   input: AccountReadInput,
+  workspaceId?: number,
 ): Promise<{ content: string; model: string }> {
-  const model = aiModelFor("summary");
-  const content = await callChat(ACCOUNT_READ_SYSTEM, buildAccountReadUserText(input), model);
+  const model = aiModelFor("summary", workspaceId);
+  const content = await callChat(ACCOUNT_READ_SYSTEM, buildAccountReadUserText(input), model, workspaceId);
   return { content, model };
 }
 
@@ -542,12 +547,13 @@ function buildExtractUserText(c: CapturedInsight): string {
 
 export async function extractInsight(
   captured: CapturedInsight,
+  workspaceId?: number,
 ): Promise<{ extracted: ExtractedInsight; model: string }> {
-  const model = aiModelFor("extract");
+  const model = aiModelFor("extract", workspaceId);
   const user = buildExtractUserText(captured);
   let text = "";
   try {
-    const resp = await client().chat.completions.create({
+    const resp = await client(workspaceId).chat.completions.create({
       model,
       response_format: { type: "json_object" },
       messages: [
@@ -557,7 +563,7 @@ export async function extractInsight(
     });
     text = resp.choices[0]?.message?.content ?? "";
   } catch {
-    const resp = await client().chat.completions.create({
+    const resp = await client(workspaceId).chat.completions.create({
       model,
       messages: [
         { role: "system", content: EXTRACT_INSIGHT_SYSTEM },
@@ -664,12 +670,13 @@ function buildMergeUserText(input: MergeSynthesisInput): string {
 
 export async function synthesizeMerge(
   input: MergeSynthesisInput,
+  workspaceId?: number,
 ): Promise<{ merged: MergedInsight; model: string }> {
-  const model = aiModelFor("extract");
+  const model = aiModelFor("extract", workspaceId);
   const user = buildMergeUserText(input);
   let text = "";
   try {
-    const resp = await client().chat.completions.create({
+    const resp = await client(workspaceId).chat.completions.create({
       model,
       response_format: { type: "json_object" },
       messages: [
@@ -679,7 +686,7 @@ export async function synthesizeMerge(
     });
     text = resp.choices[0]?.message?.content ?? "";
   } catch {
-    const resp = await client().chat.completions.create({
+    const resp = await client(workspaceId).chat.completions.create({
       model,
       messages: [
         { role: "system", content: MERGE_INSIGHTS_SYSTEM },

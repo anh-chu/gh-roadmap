@@ -203,12 +203,12 @@ interface ThresholdRow {
   flow_cold_days: number;
   flow_fresh_days: number;
 }
-function loadFlowThresholds(): FlowThresholdsResolved {
+function loadFlowThresholds(workspaceId: number): FlowThresholdsResolved {
   const t = db()
     .prepare(
-      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = 1",
+      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = ?",
     )
-    .get() as ThresholdRow | undefined;
+    .get(workspaceId) as ThresholdRow | undefined;
   return {
     shippingHours: t?.flow_shipping_hours ?? 24,
     reviewActivityDays: t?.flow_review_days ?? 3,
@@ -221,6 +221,7 @@ function loadFlowThresholds(): FlowThresholdsResolved {
 }
 
 export function detectPromiseAtRisk(
+  workspaceId: number,
   mf: MasterFilter,
   t: PredictiveThresholds,
   reactiveStalledNumbers: Set<number>,
@@ -235,11 +236,11 @@ export function detectPromiseAtRisk(
       `SELECT i.number, i.title, i.state, i.assignee, i.created_at, i.updated_at,
               m.planned_month, m.planned_week
        FROM issues i
-       LEFT JOIN roadmap_meta m ON m.issue_number = i.number
+       LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
        WHERE i.state = 'open'
          AND (m.planned_month = ? OR m.planned_week = ?)${scope}`,
     )
-    .all(monthKey, weekKey, ...params) as {
+    .all(workspaceId, monthKey, weekKey, ...params) as {
     number: number;
     title: string;
     state: "open" | "closed";
@@ -317,7 +318,7 @@ export function detectPromiseAtRisk(
     else eventsByIssue.set(e.issue_number, [v]);
   }
 
-  const thresholds = loadFlowThresholds();
+  const thresholds = loadFlowThresholds(workspaceId);
   const items: RiskItem[] = [];
   for (const i of issues) {
     if (reactiveStalledNumbers.has(i.number)) continue;
@@ -468,6 +469,7 @@ export function detectPrematureClose(mf: MasterFilter, _t: PredictiveThresholds)
 }
 
 export function detectAllPredictive(
+  workspaceId: number,
   mf: MasterFilter,
   t: PredictiveThresholds,
   ctx: { reactiveStalledNumbers: Set<number>; currentUser: string | null },
@@ -475,7 +477,7 @@ export function detectAllPredictive(
   return [
     ...detectPrDecelerating(mf, t),
     ...detectReviewStuck(mf, t),
-    ...detectPromiseAtRisk(mf, t, ctx.reactiveStalledNumbers),
+    ...detectPromiseAtRisk(workspaceId, mf, t, ctx.reactiveStalledNumbers),
     ...detectOwedReply(mf, t, ctx.currentUser),
     ...detectPrematureClose(mf, t),
   ];

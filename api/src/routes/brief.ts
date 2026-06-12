@@ -72,12 +72,12 @@ interface EventRow {
   created_at: string;
 }
 
-function loadThresholds(): { flow: FlowThresholdsResolved; granularity: "week" | "month" | "quarter" } {
+function loadThresholds(workspaceId: number): { flow: FlowThresholdsResolved; granularity: "week" | "month" | "quarter" } {
   const t = db()
     .prepare(
-      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, range_granularity FROM workspace_config WHERE id = 1",
+      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, range_granularity FROM workspace_config WHERE id = ?",
     )
-    .get() as ThresholdRow | undefined;
+    .get(workspaceId) as ThresholdRow | undefined;
   return {
     flow: {
       shippingHours: t?.flow_shipping_hours ?? 24,
@@ -92,7 +92,7 @@ function loadThresholds(): { flow: FlowThresholdsResolved; granularity: "week" |
   };
 }
 
-function loadScopedIssues(mf: MasterFilter, openOnly: boolean): IssueRow[] {
+function loadScopedIssues(workspaceId: number, mf: MasterFilter, openOnly: boolean): IssueRow[] {
   const sql = masterFilterSql(mf);
   const scope = sql ? ` AND ${sql.sql}` : "";
   const params = sql ? sql.params : [];
@@ -102,10 +102,10 @@ function loadScopedIssues(mf: MasterFilter, openOnly: boolean): IssueRow[] {
       `SELECT i.number, i.title, i.state, i.assignee, i.created_at, i.updated_at, i.closed_at,
               m.planned_month, m.planned_week, m.is_todo, m.app_updated_at
        FROM issues i
-       LEFT JOIN roadmap_meta m ON m.issue_number = i.number
+       LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
        WHERE ${stateClause}${scope}`,
     )
-    .all(...params) as IssueRow[];
+    .all(workspaceId, ...params) as IssueRow[];
 }
 
 interface JoinedData {
@@ -247,15 +247,15 @@ function confidenceLabel(c: number | null): BriefSnapshot["confidenceLabel"] {
   return "at risk";
 }
 
-function buildSnapshot(): BriefSnapshot {
-  const mf = getMasterFilter();
-  const { flow, granularity } = loadThresholds();
-  const { confidence, sampleSize } = computeConfidence(mf);
-  const schedule = computeScheduleHealth(mf);
-  const atRiskItems = computeAtRisk(mf);
+function buildSnapshot(workspaceId: number): BriefSnapshot {
+  const mf = getMasterFilter(workspaceId);
+  const { flow, granularity } = loadThresholds(workspaceId);
+  const { confidence, sampleSize } = computeConfidence(workspaceId, mf);
+  const schedule = computeScheduleHealth(workspaceId, mf);
+  const atRiskItems = computeAtRisk(workspaceId, mf);
 
-  const openIssues = loadScopedIssues(mf, true);
-  const allScoped = loadScopedIssues(mf, false);
+  const openIssues = loadScopedIssues(workspaceId, mf, true);
+  const allScoped = loadScopedIssues(workspaceId, mf, false);
   const joins = loadJoins();
 
   // Flow mix over open scoped issues.
@@ -342,29 +342,29 @@ function buildSnapshot(): BriefSnapshot {
   };
 }
 
-function readPodLastSeen(): string | null {
+function readPodLastSeen(workspaceId: number): string | null {
   const r = db()
-    .prepare("SELECT pod_last_seen_at FROM workspace_config WHERE id = 1")
-    .get() as { pod_last_seen_at: string | null } | undefined;
+    .prepare("SELECT pod_last_seen_at FROM workspace_config WHERE id = ?")
+    .get(workspaceId) as { pod_last_seen_at: string | null } | undefined;
   return r?.pod_last_seen_at ?? null;
 }
 
-function setPodLastSeen(iso: string): void {
+function setPodLastSeen(workspaceId: number, iso: string): void {
   db()
-    .prepare("UPDATE workspace_config SET pod_last_seen_at = ? WHERE id = 1")
-    .run(iso);
+    .prepare("UPDATE workspace_config SET pod_last_seen_at = ? WHERE id = ?")
+    .run(iso, workspaceId);
 }
 
 // Parse health_snapshots at_risk_json for a date, falling back to nearest ≤ date.
-function loadAtRiskNumbersOnOrBefore(dateKey: string): Set<number> {
+function loadAtRiskNumbersOnOrBefore(workspaceId: number, dateKey: string): Set<number> {
   interface Row { snapshot_date: string; at_risk_json: string }
   const row = db()
     .prepare(
       `SELECT snapshot_date, at_risk_json FROM health_snapshots
-       WHERE snapshot_date <= ?
+       WHERE workspace_id = ? AND snapshot_date <= ?
        ORDER BY snapshot_date DESC LIMIT 1`,
     )
-    .get(dateKey) as Row | undefined;
+    .get(workspaceId, dateKey) as Row | undefined;
   if (!row) return new Set();
   try {
     const arr = JSON.parse(row.at_risk_json) as unknown;
@@ -384,9 +384,9 @@ function loadAtRiskNumbersOnOrBefore(dateKey: string): Set<number> {
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-function buildChanges(): BriefChanges {
-  const mf = getMasterFilter();
-  const since = readPodLastSeen();
+function buildChanges(workspaceId: number): BriefChanges {
+  const mf = getMasterFilter(workspaceId);
+  const since = readPodLastSeen(workspaceId);
   const emptyTotals = {
     enteredAtRisk: 0,
     exitedAtRisk: 0,
@@ -420,15 +420,15 @@ function buildChanges(): BriefChanges {
   const sinceDateKey = effectiveSince.slice(0, 10);
 
   // Today's at-risk issue numbers, master-filter scoped (computeAtRisk respects mf).
-  const todayAtRisk = computeAtRisk(mf);
+  const todayAtRisk = computeAtRisk(workspaceId, mf);
   const todayAtRiskMap = new Map<number, RiskItem>();
   for (const r of todayAtRisk) todayAtRiskMap.set(r.issueNumber, r);
 
   // Baseline at-risk numbers from snapshot ≤ since date.
-  const baselineSet = loadAtRiskNumbersOnOrBefore(sinceDateKey);
+  const baselineSet = loadAtRiskNumbersOnOrBefore(workspaceId, sinceDateKey);
 
   // Title lookup for entered/exited (need master-filter scope to derive titles).
-  const allScoped = loadScopedIssues(mf, false);
+  const allScoped = loadScopedIssues(workspaceId, mf, false);
   const titleByNum = new Map<number, string>();
   for (const i of allScoped) titleByNum.set(i.number, i.title);
 
@@ -468,7 +468,7 @@ function buildChanges(): BriefChanges {
   const resolved = resolvedRows.map((r) => ({ num: r.number, title: r.title, closedAt: r.closed_at }));
 
   // Pod assignees = distinct assignees on master-filter scoped OPEN issues.
-  const openScoped = loadScopedIssues(mf, true);
+  const openScoped = loadScopedIssues(workspaceId, mf, true);
   const podAssignees = new Set<string>();
   for (const i of openScoped) if (i.assignee) podAssignees.add(i.assignee);
 
@@ -582,13 +582,13 @@ function buildChanges(): BriefChanges {
 }
 
 export async function briefRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/brief/snapshot", async (): Promise<BriefSnapshot> => buildSnapshot());
+  app.get("/api/brief/snapshot", async (req): Promise<BriefSnapshot> => buildSnapshot(req.workspaceId));
 
-  app.get("/api/brief/changes", async (): Promise<BriefChanges> => buildChanges());
+  app.get("/api/brief/changes", async (req): Promise<BriefChanges> => buildChanges(req.workspaceId));
 
-  app.post("/api/brief/mark-seen", async (): Promise<{ podLastSeenAt: string }> => {
+  app.post("/api/brief/mark-seen", async (req): Promise<{ podLastSeenAt: string }> => {
     const now = new Date().toISOString();
-    setPodLastSeen(now);
+    setPodLastSeen(req.workspaceId, now);
     return { podLastSeenAt: now };
   });
 }

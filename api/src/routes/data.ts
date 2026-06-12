@@ -27,6 +27,21 @@ function tableColumns(table: string): string[] {
   return (db().prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]).map((c) => c.name);
 }
 
+// Legacy (pre-multi-pod) backup compatibility: older exports have a singleton
+// workspace_config row (no slug/name) and roadmap_meta / health_snapshots rows keyed
+// without workspace_id. Inject the workspace-1 ('mht') defaults the schema migration
+// would have applied, so old backups still round-trip — the planning layer in
+// roadmap_meta cannot be re-derived from GitHub.
+function normalizeLegacyRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  if (table === "workspace_config" && row.slug === undefined) {
+    return { ...row, slug: "mht", name: "MHT" };
+  }
+  if ((table === "roadmap_meta" || table === "health_snapshots") && row.workspace_id === undefined) {
+    return { ...row, workspace_id: 1 };
+  }
+  return row;
+}
+
 export async function dataRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/export", { preHandler: requireAdmin }, async (_req, reply) => {
     const tables: Record<string, unknown[]> = {};
@@ -80,8 +95,9 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
           conn.prepare(`DELETE FROM "${table}"`).run();
           const tableCols = new Set(tableColumns(table));
           let n = 0;
-          for (const row of rows) {
-            if (!row || typeof row !== "object") continue;
+          for (const raw of rows) {
+            if (!raw || typeof raw !== "object") continue;
+            const row = normalizeLegacyRow(table, raw as Record<string, unknown>);
             const cols = Object.keys(row).filter((c) => tableCols.has(c));
             if (cols.length === 0) continue;
             const sql = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(", ")}) VALUES (${cols

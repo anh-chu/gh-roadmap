@@ -57,12 +57,12 @@ function parseList(raw: string): string[] {
   }
 }
 
-function readConfig(): WorkspaceConfig {
+function readConfig(workspaceId: number): WorkspaceConfig {
   const row = db()
     .prepare(
-      "SELECT bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, todo_stale_days, flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, pin_meta_cols, predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours, ai_model_summary, ai_model_progress, ai_model_extract, updated_at FROM workspace_config WHERE id = 1",
+      "SELECT bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, todo_stale_days, flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, pin_meta_cols, predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours, ai_model_summary, ai_model_progress, ai_model_extract, updated_at FROM workspace_config WHERE id = ?",
     )
-    .get() as ConfigRow | undefined;
+    .get(workspaceId) as ConfigRow | undefined;
   if (!row) {
     return {
       bucketingField: "label",
@@ -157,7 +157,7 @@ function validateMasterList(list: unknown, name: string): { ok: true; value: str
 }
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/config", async () => readConfig());
+  app.get("/api/config", async (req) => readConfig(req.workspaceId));
 
   app.patch<{
     Body: {
@@ -223,7 +223,13 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const current = readConfig();
+      // Admin-gated: this row defines the whole pod's view (base master filter,
+      // bucketing, thresholds) — shared state, not a personal preference.
+      if (!req.user?.isAdmin) {
+        return reply.code(403).send({ error: "workspace config is admin-only" });
+      }
+      const workspaceId = req.workspaceId;
+      const current = readConfig(workspaceId);
       const nextField = (req.body.bucketingField ?? current.bucketingField) as BucketingField;
       let nextValue = req.body.bucketingValue ?? current.bucketingValue;
 
@@ -364,7 +370,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       const now = new Date().toISOString();
       db()
         .prepare(
-          "UPDATE workspace_config SET bucketing_field = ?, bucketing_value = ?, master_filter_include = ?, master_filter_exclude = ?, range_granularity = ?, range_count = ?, range_offset = ?, todo_stale_days = ?, flow_shipping_hours = ?, flow_review_days = ?, flow_code_days = ?, flow_discussion_days = ?, flow_stall_days = ?, flow_cold_days = ?, flow_fresh_days = ?, pin_meta_cols = ?, predict_pr_stale_days = ?, predict_pr_min_age = ?, predict_review_wait_days = ?, predict_promise_confidence_min = ?, predict_reply_overdue_hours = ?, ai_model_summary = ?, ai_model_progress = ?, ai_model_extract = ?, updated_at = ? WHERE id = 1",
+          "UPDATE workspace_config SET bucketing_field = ?, bucketing_value = ?, master_filter_include = ?, master_filter_exclude = ?, range_granularity = ?, range_count = ?, range_offset = ?, todo_stale_days = ?, flow_shipping_hours = ?, flow_review_days = ?, flow_code_days = ?, flow_discussion_days = ?, flow_stall_days = ?, flow_cold_days = ?, flow_fresh_days = ?, pin_meta_cols = ?, predict_pr_stale_days = ?, predict_pr_min_age = ?, predict_review_wait_days = ?, predict_promise_confidence_min = ?, predict_reply_overdue_hours = ?, ai_model_summary = ?, ai_model_progress = ?, ai_model_extract = ?, updated_at = ? WHERE id = ?",
         )
         .run(
           nextField,
@@ -392,6 +398,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           nextAiModelProgress,
           nextAiModelExtract,
           now,
+          workspaceId,
         );
 
       return {

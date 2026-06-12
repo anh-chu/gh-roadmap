@@ -7,10 +7,10 @@ export interface MasterFilter {
 
 type Row = { master_filter_include: string; master_filter_exclude: string };
 
-export function getMasterFilter(): MasterFilter {
+export function getMasterFilter(workspaceId: number): MasterFilter {
   const row = db()
-    .prepare("SELECT master_filter_include, master_filter_exclude FROM workspace_config WHERE id = 1")
-    .get() as Row | undefined;
+    .prepare("SELECT master_filter_include, master_filter_exclude FROM workspace_config WHERE id = ?")
+    .get(workspaceId) as Row | undefined;
   if (!row) return { include: [], exclude: [] };
   try {
     return {

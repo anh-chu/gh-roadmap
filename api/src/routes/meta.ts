@@ -6,10 +6,10 @@ import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterF
 
 type IssueScanRow = { labels: string; assignee: string | null; milestone: string | null };
 
-function computeBuckets(field: BucketingField, value: string): BucketsInfo {
+function computeBuckets(workspaceId: number, field: BucketingField, value: string): BucketsInfo {
   if (field === "none") return { field, value, options: [] };
 
-  const mf = getMasterFilter();
+  const mf = getMasterFilter(workspaceId);
   const rows = (db()
     .prepare("SELECT labels, assignee, milestone FROM issues")
     .all() as IssueScanRow[])
@@ -47,8 +47,8 @@ function computeBuckets(field: BucketingField, value: string): BucketsInfo {
 
 // Counts open issues at the end of each of the last 8 weeks (oldest entry first).
 // An issue is "open at time T" iff created_at <= T AND (closed_at IS NULL OR closed_at > T).
-function openHistoryWeekly(): number[] {
-  const mf = masterFilterSql(getMasterFilter());
+function openHistoryWeekly(workspaceId: number): number[] {
+  const mf = masterFilterSql(getMasterFilter(workspaceId));
   const scope = mf ? ` AND ${mf.sql}` : "";
   const scopeParams = mf ? mf.params : [];
 
@@ -73,8 +73,8 @@ function ymUtc(d: Date): string {
   return d.toISOString().slice(0, 7);
 }
 
-function closedInMonth(month: string): number {
-  const mf = masterFilterSql(getMasterFilter());
+function closedInMonth(workspaceId: number, month: string): number {
+  const mf = masterFilterSql(getMasterFilter(workspaceId));
   const scope = mf ? ` AND ${mf.sql}` : "";
   const scopeParams = mf ? mf.params : [];
   const row = db()
@@ -88,8 +88,8 @@ function closedInMonth(month: string): number {
   return row.n;
 }
 
-function scopedCount(state: "open" | "closed"): number {
-  const mf = masterFilterSql(getMasterFilter());
+function scopedCount(workspaceId: number, state: "open" | "closed"): number {
+  const mf = masterFilterSql(getMasterFilter(workspaceId));
   const scope = mf ? ` AND ${mf.sql}` : "";
   const scopeParams = mf ? mf.params : [];
   const row = db()
@@ -119,18 +119,19 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/api/meta", async () => {
+  app.get("/api/meta", async (req) => {
     const rate = getRateLimitStatus();
-    const open = scopedCount("open");
-    const closed = scopedCount("closed");
+    const workspaceId = req.workspaceId;
+    const open = scopedCount(workspaceId, "open");
+    const closed = scopedCount(workspaceId, "closed");
 
     const cfg = db()
-      .prepare("SELECT bucketing_field, bucketing_value FROM workspace_config WHERE id = 1")
-      .get() as { bucketing_field: BucketingField; bucketing_value: string } | undefined;
+      .prepare("SELECT bucketing_field, bucketing_value FROM workspace_config WHERE id = ?")
+      .get(workspaceId) as { bucketing_field: BucketingField; bucketing_value: string } | undefined;
     const field: BucketingField = cfg?.bucketing_field ?? "label";
     const value = cfg?.bucketing_value ?? "area";
 
-    const buckets = computeBuckets(field, value);
+    const buckets = computeBuckets(workspaceId, field, value);
     const areas = field === "label" && value === "area" ? buckets.options : [];
 
     // webhookEventsToday is a sync_log metric, not an issue metric — leave unscoped.
@@ -162,9 +163,9 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
       closedCount: closed,
       buckets,
       webhookEventsToday,
-      openHistoryWeekly: openHistoryWeekly(),
-      closedThisMonth: closedInMonth(thisMonth),
-      closedLastMonth: closedInMonth(lastMonth),
+      openHistoryWeekly: openHistoryWeekly(workspaceId),
+      closedThisMonth: closedInMonth(workspaceId, thisMonth),
+      closedLastMonth: closedInMonth(workspaceId, lastMonth),
       currentUser,
       aiEnvDefault: (process.env.AI_MODEL ?? "").trim() || null,
       areas,

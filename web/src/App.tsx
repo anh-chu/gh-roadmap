@@ -12,7 +12,8 @@ import { Insights } from "./components/Insights";
 import { Accounts } from "./components/Accounts";
 import { AccountDrawer } from "./components/AccountDrawer";
 import { useIssueInsightCounts } from "./hooks/useIssueInsightCounts";
-import { postSync } from "./lib/api";
+import { postSync, setGithubConnectHandler, type GithubConnectReason } from "./lib/api";
+import { GithubConnectModal } from "./components/GithubConnectModal";
 import { useToast } from "./components/Toast";
 import { useIssues } from "./hooks/useIssues";
 import { useMeta } from "./hooks/useMeta";
@@ -76,6 +77,13 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
   const [showNewIssue, setShowNewIssue] = useState(false);
   const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
   const [syncing, setSyncing] = useState(false);
+  // GitHub write-identity gate (layer 3): one app-level Connect prompt, raised by the
+  // shared 409 interceptor in lib/api.ts. No per-action wiring — write buttons stay live.
+  const [ghConnectReason, setGhConnectReason] = useState<GithubConnectReason | null>(null);
+  useEffect(() => {
+    setGithubConnectHandler(setGhConnectReason);
+    return () => setGithubConnectHandler(null);
+  }, []);
 
   const handleSync = useCallback(async () => {
     if (syncing) return;
@@ -362,6 +370,7 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
         onChange={setRichFilter}
         onClose={() => setFilterAnchor(null)}
       />
+      <GithubConnectModal reason={ghConnectReason} onClose={() => setGhConnectReason(null)} />
       {toastNode}
     </>
   );

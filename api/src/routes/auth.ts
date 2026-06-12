@@ -10,18 +10,25 @@ import {
   verifyState,
 } from "../auth.js";
 import type { AuthMe } from "../../../shared/types.js";
-import { upsertUserOnLogin } from "../db.js";
+import { getUserGithub, upsertUserOnLogin } from "../db.js";
+import { githubOAuthEnabled } from "../githubWriteIdentity.js";
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // Who am I — drives the frontend login gate + admin-control visibility.
   app.get("/api/auth/me", async (req): Promise<AuthMe> => {
     const enabled = authEnabled();
     const user = userFromRequest(req);
+    // GitHub link state (layer 3) — passive status for the UserMenu + connect-prompt copy.
+    const ghEnabled = githubOAuthEnabled();
+    const gh = ghEnabled && user ? getUserGithub(user.email) : undefined;
     return {
       authEnabled: enabled,
       user: user
         ? { email: user.email, name: user.name, picture: user.picture, role: user.role, isAdmin: user.isAdmin }
         : null,
+      githubOauthEnabled: ghEnabled,
+      githubLinked: Boolean(gh?.github_token_enc),
+      githubLogin: gh?.github_login ?? null,
     };
   });
 

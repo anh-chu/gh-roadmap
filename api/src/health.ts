@@ -46,18 +46,18 @@ function loadEstimateEffort(nums: number[]): Map<number, EffortRating> {
 // States that count as "moving toward ship" when an item is due now.
 const MOVING_STATES = new Set<FlowState>(["shipping", "in-review", "in-code"]);
 
-function loadGranularity(): RangeGranularity {
+function loadGranularity(workspaceId: number): RangeGranularity {
   const r = db()
-    .prepare("SELECT range_granularity FROM workspace_config WHERE id = 1")
-    .get() as { range_granularity?: string } | undefined;
+    .prepare("SELECT range_granularity FROM workspace_config WHERE id = ?")
+    .get(workspaceId) as { range_granularity?: string } | undefined;
   const v = r?.range_granularity;
   return v === "week" || v === "quarter" ? v : "month";
 }
 
-function loadRangeConfig(): { granularity: RangeGranularity; count: number; offset: number } {
+function loadRangeConfig(workspaceId: number): { granularity: RangeGranularity; count: number; offset: number } {
   const r = db()
-    .prepare("SELECT range_granularity, range_count, range_offset FROM workspace_config WHERE id = 1")
-    .get() as { range_granularity?: string; range_count?: number; range_offset?: number } | undefined;
+    .prepare("SELECT range_granularity, range_count, range_offset FROM workspace_config WHERE id = ?")
+    .get(workspaceId) as { range_granularity?: string; range_count?: number; range_offset?: number } | undefined;
   const g = r?.range_granularity;
   return {
     granularity: g === "week" || g === "quarter" ? g : "month",
@@ -139,12 +139,12 @@ interface ThresholdRow {
   todo_stale_days: number;
 }
 
-function loadThresholds(): { flow: FlowThresholdsResolved; todoStaleDays: number } {
+function loadThresholds(workspaceId: number): { flow: FlowThresholdsResolved; todoStaleDays: number } {
   const t = db()
     .prepare(
-      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, todo_stale_days FROM workspace_config WHERE id = 1",
+      "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, todo_stale_days FROM workspace_config WHERE id = ?",
     )
-    .get() as ThresholdRow | undefined;
+    .get(workspaceId) as ThresholdRow | undefined;
   return {
     flow: {
       shippingHours: t?.flow_shipping_hours ?? 24,
@@ -159,10 +159,10 @@ function loadThresholds(): { flow: FlowThresholdsResolved; todoStaleDays: number
   };
 }
 
-function loadIssues(mf: MasterFilter, asOf?: string): IssueRow[] {
+function loadIssues(workspaceId: number, mf: MasterFilter, asOf?: string): IssueRow[] {
   const sql = masterFilterSql(mf);
   const scope = sql ? ` AND ${sql.sql}` : "";
-  const params = sql ? [...sql.params] : [];
+  const params: unknown[] = sql ? [...sql.params] : [];
   // Live: only currently-open issues. Historic: any issue that was open at asOf —
   // created_at <= asOf AND (closed_at IS NULL OR closed_at > asOf).
   let openWhere = "i.state = 'open'";
@@ -176,10 +176,10 @@ function loadIssues(mf: MasterFilter, asOf?: string): IssueRow[] {
       `SELECT i.number, i.title, i.state, i.assignee, i.created_at, i.updated_at, i.closed_at,
               i.labels, m.planned_month, m.planned_week, m.is_todo, m.app_updated_at
        FROM issues i
-       LEFT JOIN roadmap_meta m ON m.issue_number = i.number
+       LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
        WHERE ${openWhere}${scope}`,
     )
-    .all(...params) as IssueRow[];
+    .all(workspaceId, ...params) as IssueRow[];
 }
 
 // Build the join maps once, reuse across confidence and risk passes.
@@ -380,15 +380,16 @@ function hasFlowSignal(num: number, joins: JoinedData): boolean {
 }
 
 export function computeConfidence(
-  mf: MasterFilter = getMasterFilter(),
+  workspaceId: number,
+  mf: MasterFilter = getMasterFilter(workspaceId),
   asOf?: string,
 ): {
   confidence: number | null;
   sampleSize: number;
   noSignal: number;
 } {
-  const { flow } = loadThresholds();
-  const issues = loadIssues(mf, asOf);
+  const { flow } = loadThresholds(workspaceId);
+  const issues = loadIssues(workspaceId, mf, asOf);
   const planned = issues.filter((i) => i.planned_month !== null || i.planned_week !== null);
   if (planned.length === 0) return { confidence: null, sampleSize: 0, noSignal: 0 };
   const joins = loadJoins(asOf);
@@ -431,12 +432,13 @@ function scheduleStatusOf(
 //   due this period   → on-schedule only if actively moving (shipping/review/code)
 //   future            → on-schedule (has runway) unless cold (effectively dead)
 export function computeScheduleHealth(
-  mf: MasterFilter = getMasterFilter(),
+  workspaceId: number,
+  mf: MasterFilter = getMasterFilter(workspaceId),
   asOf?: string,
 ): ScheduleHealth {
-  const { flow } = loadThresholds();
-  const g = loadGranularity();
-  const issues = loadIssues(mf, asOf).filter(
+  const { flow } = loadThresholds(workspaceId);
+  const g = loadGranularity(workspaceId);
+  const issues = loadIssues(workspaceId, mf, asOf).filter(
     (i) => i.planned_month !== null || i.planned_week !== null,
   );
   const committed = issues.length;
@@ -530,8 +532,11 @@ interface PlannedIssueRow {
 }
 
 // Per-period roadmap rollup over the active range — feeds the AI progress read.
-export function computeRoadmapTimeline(mf: MasterFilter = getMasterFilter()): RoadmapTimeline {
-  const { granularity, count, offset } = loadRangeConfig();
+export function computeRoadmapTimeline(
+  workspaceId: number,
+  mf: MasterFilter = getMasterFilter(workspaceId),
+): RoadmapTimeline {
+  const { granularity, count, offset } = loadRangeConfig(workspaceId);
   const cols = periodColumns(granularity, count, offset);
   const ordToCol = new Map<number, RoadmapPeriodRollup>();
   const periods: RoadmapPeriodRollup[] = cols.map((c) => {
@@ -553,12 +558,12 @@ export function computeRoadmapTimeline(mf: MasterFilter = getMasterFilter()): Ro
   const rows = db()
     .prepare(
       `SELECT i.number, i.state, m.planned_month, m.planned_week
-       FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number
+       FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
        WHERE (m.planned_month IS NOT NULL OR m.planned_week IS NOT NULL)${scope}`,
     )
-    .all(...params) as PlannedIssueRow[];
+    .all(workspaceId, ...params) as PlannedIssueRow[];
 
-  const atRiskSet = new Set(computeAtRisk(mf).map((r) => r.issueNumber));
+  const atRiskSet = new Set(computeAtRisk(workspaceId, mf).map((r) => r.issueNumber));
   const curOrd = currentPeriodOrdinal(granularity);
 
   for (const r of rows) {
@@ -582,18 +587,19 @@ export function computeRoadmapTimeline(mf: MasterFilter = getMasterFilter()): Ro
 }
 
 export function computeAtRisk(
-  mf: MasterFilter = getMasterFilter(),
+  workspaceId: number,
+  mf: MasterFilter = getMasterFilter(workspaceId),
   asOf?: string,
 ): RiskItem[] {
-  const { flow, todoStaleDays } = loadThresholds();
-  const issues = loadIssues(mf, asOf);
+  const { flow, todoStaleDays } = loadThresholds(workspaceId);
+  const issues = loadIssues(workspaceId, mf, asOf);
   const joins = loadJoins(asOf);
   const nowMs = asOf ? Date.parse(asOf) : Date.now();
   const now = nowMs;
   const asOfDate = asOf ? new Date(asOf) : new Date();
   const monthKey = currentMonthKey(asOfDate);
   const weekKey = currentWeekKey(asOfDate);
-  const granularity = loadGranularity();
+  const granularity = loadGranularity(workspaceId);
   const periodNoun = granularity === "week" ? "week" : granularity === "quarter" ? "quarter" : "month";
 
   interface Candidate extends RiskItem {
@@ -711,9 +717,9 @@ export function computeAtRisk(
     const reactiveStalledNumbers = new Set(
       out.filter((i) => i.category === "stalled-flow").map((i) => i.issueNumber),
     );
-    const pt = loadPredictiveThresholds();
+    const pt = loadPredictiveThresholds(workspaceId);
     const currentUser = getKv("currentUser");
-    const predictive = detectAllPredictive(mf, pt, { reactiveStalledNumbers, currentUser });
+    const predictive = detectAllPredictive(workspaceId, mf, pt, { reactiveStalledNumbers, currentUser });
 
     // Dedupe predictive items if the same (issue, category) already exists.
     const seen = new Set(out.map((c) => `${c.issueNumber}:${c.category}`));
@@ -804,12 +810,12 @@ interface PredictiveThresholdRow {
   predict_promise_confidence_min: number;
   predict_reply_overdue_hours: number;
 }
-function loadPredictiveThresholds(): PredictiveThresholds {
+function loadPredictiveThresholds(workspaceId: number): PredictiveThresholds {
   const r = db()
     .prepare(
-      "SELECT predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours FROM workspace_config WHERE id = 1",
+      "SELECT predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours FROM workspace_config WHERE id = ?",
     )
-    .get() as PredictiveThresholdRow | undefined;
+    .get(workspaceId) as PredictiveThresholdRow | undefined;
   return {
     prStaleDays: r?.predict_pr_stale_days ?? 3,
     prMinAgeForStale: r?.predict_pr_min_age ?? 7,
@@ -824,29 +830,29 @@ export function utcDateKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function upsertSnapshot(): {
+export function upsertSnapshot(workspaceId: number): {
   snapshotDate: string;
   confidence: number | null;
   sampleSize: number;
   atRiskCount: number;
 } {
-  const mf = getMasterFilter();
-  const { confidence, sampleSize } = computeConfidence(mf);
-  const atRisk = computeAtRisk(mf);
-  const onTime = computeScheduleHealth(mf).onTime;
+  const mf = getMasterFilter(workspaceId);
+  const { confidence, sampleSize } = computeConfidence(workspaceId, mf);
+  const atRisk = computeAtRisk(workspaceId, mf);
+  const onTime = computeScheduleHealth(workspaceId, mf).onTime;
   const date = utcDateKey();
   const computedAt = new Date().toISOString();
   db()
     .prepare(
-      `INSERT INTO health_snapshots(snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time)
-       VALUES(?,?,?,?,?,?)
-       ON CONFLICT(snapshot_date) DO UPDATE SET
+      `INSERT INTO health_snapshots(workspace_id, snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time)
+       VALUES(?,?,?,?,?,?,?)
+       ON CONFLICT(workspace_id, snapshot_date) DO UPDATE SET
          confidence=excluded.confidence,
          sample_size=excluded.sample_size,
          at_risk_json=excluded.at_risk_json,
          computed_at=excluded.computed_at,
          on_time=excluded.on_time`,
     )
-    .run(date, confidence, sampleSize, JSON.stringify(atRisk), computedAt, onTime);
+    .run(workspaceId, date, confidence, sampleSize, JSON.stringify(atRisk), computedAt, onTime);
   return { snapshotDate: date, confidence, sampleSize, atRiskCount: atRisk.length };
 }

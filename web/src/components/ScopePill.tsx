@@ -1,12 +1,15 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { WorkspaceConfig } from "../../../shared/types";
-import { canEdit } from "../lib/role";
 
 const LABEL_RE = /^[a-zA-Z0-9:_-]{1,32}$/;
 const MAX_ENTRIES = 20;
 
 interface ScopePillProps {
   config: WorkspaceConfig;
+  // The pill edits the pod's BASE filter (shared workspace config) — admin only.
+  // Non-admins (editors included) see it read-only; personal narrowing is the
+  // client-side FilterPopover, not a server-side refinement layer.
+  isAdmin: boolean;
   onChange: (patch: { masterFilterInclude?: string[]; masterFilterExclude?: string[] }) => void;
 }
 
@@ -22,7 +25,7 @@ function summarise(include: string[], exclude: string[]): { text: string; faded:
   return { text: "Scope: " + parts.join(" "), faded: false };
 }
 
-export function ScopePill({ config, onChange }: ScopePillProps): JSX.Element {
+export function ScopePill({ config, isAdmin, onChange }: ScopePillProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -53,7 +56,7 @@ export function ScopePill({ config, onChange }: ScopePillProps): JSX.Element {
   }, [open]);
 
   const handleOpen = (): void => {
-    if (!canEdit()) return; // viewers see the scope but can't edit it (shared workspace config)
+    if (!isAdmin) return; // non-admins see the pod scope but can't edit it (server PATCH is admin-gated)
     const r = btnRef.current?.getBoundingClientRect();
     if (r) setAnchor(r);
     setOpen((v) => !v);

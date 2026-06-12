@@ -97,7 +97,7 @@ const CATEGORY_PRIORITY: Record<PmActionCategory, number> = {
   "post-release": 3,
 };
 
-export function detectPmActions(mf: MasterFilter): PmActionItem[] {
+export function detectPmActions(workspaceId: number, mf: MasterFilter): PmActionItem[] {
   const now = Date.now();
   const monthKey = currentMonthKey();
   const weekKey = currentWeekKey();
@@ -109,10 +109,10 @@ export function detectPmActions(mf: MasterFilter): PmActionItem[] {
               m.planned_month, m.planned_week, m.is_todo,
               (SELECT COUNT(*) FROM comments c WHERE c.issue_number = i.number) AS comment_count
        FROM issues i
-       LEFT JOIN roadmap_meta m ON m.issue_number = i.number
+       LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
        WHERE 1=1${scope.sql}`,
     )
-    .all(...scope.params) as IssueRow[];
+    .all(workspaceId, ...scope.params) as IssueRow[];
 
   const pullsByIssue = loadPullsByIssue();
 

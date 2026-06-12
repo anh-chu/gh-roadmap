@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db.js";
 import { createComment, deleteComment, updateComment } from "../github.js";
+import { runGithubWrite } from "../githubWriteIdentity.js";
 import { deleteCommentRow, upsertComment } from "../sync.js";
 import { getMasterFilter, passesMasterFilter } from "../masterFilter.js";
 
@@ -14,7 +15,7 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
       | undefined;
     if (issue) {
       const labels = JSON.parse(issue.labels) as string[];
-      if (!passesMasterFilter(labels, getMasterFilter())) return [];
+      if (!passesMasterFilter(labels, getMasterFilter(req.workspaceId))) return [];
     }
     return db()
       .prepare("SELECT * FROM comments WHERE issue_number = ? ORDER BY created_at ASC")
@@ -37,9 +38,11 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
       const num = Number(req.params.num);
       if (!Number.isFinite(num)) return reply.code(400).send({ error: "invalid issue number" });
       try {
-        const c = await createComment(num, req.body.body);
-        upsertComment(c);
-        return c;
+        return await runGithubWrite(req, reply, async (octo) => {
+          const c = await createComment(octo, num, req.body.body);
+          upsertComment(c);
+          return c;
+        });
       } catch (err) {
         req.log.error({ err }, "github comment create failed");
         return reply.code(502).send({ error: "github comment create failed" });
@@ -67,10 +70,12 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
         | undefined;
       if (!existing) return reply.code(404).send({ error: "comment not found" });
       try {
-        const c = await updateComment(id, req.body.body);
-        c.issue_number = existing.issue_number;
-        upsertComment(c);
-        return c;
+        return await runGithubWrite(req, reply, async (octo) => {
+          const c = await updateComment(octo, id, req.body.body);
+          c.issue_number = existing.issue_number;
+          upsertComment(c);
+          return c;
+        });
       } catch (err) {
         req.log.error({ err }, "github comment update failed");
         return reply.code(502).send({ error: "github comment update failed" });
@@ -82,9 +87,11 @@ export async function commentsRoutes(app: FastifyInstance): Promise<void> {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return reply.code(400).send({ error: "invalid comment id" });
     try {
-      await deleteComment(id);
-      deleteCommentRow(id);
-      return { ok: true };
+      return await runGithubWrite(req, reply, async (octo) => {
+        await deleteComment(octo, id);
+        deleteCommentRow(id);
+        return { ok: true };
+      });
     } catch (err) {
       req.log.error({ err }, "github comment delete failed");
       return reply.code(502).send({ error: "github comment delete failed" });

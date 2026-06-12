@@ -1,6 +1,7 @@
 import { db } from "./db.js";
 import { computeAtRisk, computeConfidence, computeScheduleHealth, utcDateKey } from "./health.js";
 import { getMasterFilter } from "./masterFilter.js";
+import { listWorkspaces } from "./workspace.js";
 
 interface ExistingRow {
   snapshot_date: string;
@@ -18,7 +19,20 @@ interface ExistingRow {
 //
 // Configurable thresholds (e.g. todo_stale_days) reflect today's setting for
 // all replayed days — we don't track historic config — and that's acceptable.
-export function backfillHealthSnapshots(days: number = 30): {
+// Boot-time variant: replay snapshots for every non-archived workspace (each pod has
+// its own master filter, so each gets its own snapshot history).
+export function backfillAllHealthSnapshots(days: number = 30): { written: number; skipped: number } {
+  let written = 0;
+  let skipped = 0;
+  for (const ws of listWorkspaces()) {
+    const r = backfillHealthSnapshots(ws.id, days);
+    written += r.written;
+    skipped += r.skipped;
+  }
+  return { written, skipped };
+}
+
+export function backfillHealthSnapshots(workspaceId: number, days: number = 30): {
   written: number;
   skipped: number;
 } {
@@ -28,24 +42,24 @@ export function backfillHealthSnapshots(days: number = 30): {
   const existing = new Map(
     (
       db()
-        .prepare(`SELECT snapshot_date, on_time FROM health_snapshots`)
-        .all() as ExistingRow[]
+        .prepare(`SELECT snapshot_date, on_time FROM health_snapshots WHERE workspace_id = ?`)
+        .all(workspaceId) as ExistingRow[]
     ).map((r) => [r.snapshot_date, r.on_time] as const),
   );
 
-  const mf = getMasterFilter();
+  const mf = getMasterFilter(workspaceId);
   let written = 0;
   let skipped = 0;
 
   const insert = db().prepare(
-    `INSERT INTO health_snapshots(snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time)
-     VALUES(?,?,?,?,?,?)
-     ON CONFLICT(snapshot_date) DO NOTHING`,
+    `INSERT INTO health_snapshots(workspace_id, snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time)
+     VALUES(?,?,?,?,?,?,?)
+     ON CONFLICT(workspace_id, snapshot_date) DO NOTHING`,
   );
   // Pre-existing rows predate the on_time column — fill it without disturbing the
   // recorded confidence / at-risk history.
   const fillOnTime = db().prepare(
-    `UPDATE health_snapshots SET on_time = ? WHERE snapshot_date = ?`,
+    `UPDATE health_snapshots SET on_time = ? WHERE workspace_id = ? AND snapshot_date = ?`,
   );
 
   // Replay oldest → newest. Skip today — live snapshot job owns that row.
@@ -58,18 +72,18 @@ export function backfillHealthSnapshots(days: number = 30): {
     const asOf = `${dateKey}T23:59:59.999Z`;
     if (existing.has(dateKey)) {
       if (existing.get(dateKey) == null) {
-        fillOnTime.run(computeScheduleHealth(mf, asOf).onTime, dateKey);
+        fillOnTime.run(computeScheduleHealth(workspaceId, mf, asOf).onTime, workspaceId, dateKey);
         written++;
       } else {
         skipped++;
       }
       continue;
     }
-    const { confidence, sampleSize } = computeConfidence(mf, asOf);
-    const atRisk = computeAtRisk(mf, asOf);
-    const onTime = computeScheduleHealth(mf, asOf).onTime;
+    const { confidence, sampleSize } = computeConfidence(workspaceId, mf, asOf);
+    const atRisk = computeAtRisk(workspaceId, mf, asOf);
+    const onTime = computeScheduleHealth(workspaceId, mf, asOf).onTime;
     const computedAt = new Date().toISOString();
-    insert.run(dateKey, confidence, sampleSize, JSON.stringify(atRisk), computedAt, onTime);
+    insert.run(workspaceId, dateKey, confidence, sampleSize, JSON.stringify(atRisk), computedAt, onTime);
     written++;
   }
 
