@@ -5,6 +5,7 @@ import {
   createIssue as apiCreateIssue,
   fetchIssues,
   patchIssue,
+  patchIssueProjectStatus,
   patchRoadmap,
   postComment,
   type IssueCreatePayload,
@@ -56,8 +57,8 @@ export interface BucketChange {
 
 // Placement (column-axis) — discriminated union by `kind`.
 // `month` / `week` / `quarter` carry the destination time-bucket key.
-// `todo` flips the app-local TODO flag and clears any planned date.
-// `backlog` clears everything.
+// `todo` / `backlog` set the pinned GitHub Projects board's Status (the single
+// source of truth for the two meta columns) and clear any planned date.
 export type MoveTarget =
   | { kind: "todo" }
   | { kind: "backlog" }
@@ -65,16 +66,27 @@ export type MoveTarget =
   | { kind: "week"; value: string }
   | { kind: "quarter"; value: string };
 
+// Which board Status options back the TODO/Backlog meta columns (from workspace
+// config), plus a hook to surface the add-to-board side effect (real shared
+// mutation — must not be silent).
+export interface StatusNames {
+  todo: string;
+  backlog: string;
+  onAddedToBoard?: (num: number) => void;
+}
+
 export interface MutationApi {
   move(
     num: number,
     target: MoveTarget,
     bucket?: BucketChange,
+    status?: StatusNames,
   ): Promise<boolean>;
   setTitle(num: number, title: string): Promise<boolean>;
   setState(num: number, s: "open" | "closed"): Promise<boolean>;
   setAssignee(num: number, assignee: string): Promise<boolean>;
   setMonth(num: number, month: string | null): Promise<boolean>;
+  setNotes(num: number, notes: string | null): Promise<boolean>;
   setBody(num: number, body: string): Promise<boolean>;
   setLabels(num: number, labels: string[]): Promise<boolean>;
   setMilestone(num: number, milestone: string | null): Promise<boolean>;
@@ -142,37 +154,65 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
       num: number,
       target: MoveTarget,
       bucket?: BucketChange,
+      status?: StatusNames,
     ): Promise<boolean> => {
       const prev = state.issues.find((i) => i.num === num);
       if (!prev) return false;
 
       // Translate placement target → roadmap PATCH body (the canonical mapping).
       // `quarter` is stored as the first month of the quarter (legacy behavior).
+      // TODO/Backlog placement is no longer app-only — it's the board Status
+      // (is_todo deprecated; the UI stops sending it).
       function roadmapPatchFor(t: MoveTarget): {
-        isTodo: boolean;
         plannedMonth: string | null;
         plannedWeek: string | null;
       } {
         switch (t.kind) {
           case "todo":
-            return { isTodo: true, plannedMonth: null, plannedWeek: null };
           case "backlog":
-            return { isTodo: false, plannedMonth: null, plannedWeek: null };
+            return { plannedMonth: null, plannedWeek: null };
           case "month":
-            return { isTodo: false, plannedMonth: t.value, plannedWeek: null };
+            return { plannedMonth: t.value, plannedWeek: null };
           case "week":
-            return { isTodo: false, plannedMonth: null, plannedWeek: t.value };
+            return { plannedMonth: null, plannedWeek: t.value };
           case "quarter": {
             const m = /^(\d{4})-Q([1-4])$/.exec(t.value);
             const firstMonth = m ? `${m[1]}-${String((Number(m[2]) - 1) * 3 + 1).padStart(2, "0")}` : null;
-            return { isTodo: false, plannedMonth: firstMonth, plannedWeek: null };
+            return { plannedMonth: firstMonth, plannedWeek: null };
           }
         }
       }
 
+      // No pinned project (status undefined) → legacy app-only placement:
+      // is_todo drives the TODO column via the roadmap PATCH, no GitHub mutation.
+      const legacyTodo = status === undefined ? target.kind === "todo" : null;
+
+      // Board Status write (GitHub mutation, optimistic). `undefined` = no write.
+      // Dropping into TODO/Backlog sets the matching Status option; dropping a
+      // meta-column card onto a time column clears Status so placement (where
+      // Todo status overrides planned dates) doesn't snap the card back.
+      let statusWrite: string | null | undefined;
+      if (status) {
+        if (target.kind === "todo") statusWrite = status.todo;
+        else if (target.kind === "backlog") statusWrite = status.backlog;
+        else if (prev.projectStatus === status.todo || prev.projectStatus === status.backlog) {
+          statusWrite = null;
+        }
+      }
+      if (statusWrite !== undefined && statusWrite === prev.projectStatus) statusWrite = undefined;
+
       const rp = roadmapPatchFor(target);
-      const forward: Partial<Issue> = { month: rp.plannedMonth, week: rp.plannedWeek, isTodo: rp.isTodo };
-      const backward: Partial<Issue> = { month: prev.month, week: prev.week, isTodo: prev.isTodo };
+      const forward: Partial<Issue> = { month: rp.plannedMonth, week: rp.plannedWeek };
+      const backward: Partial<Issue> = { month: prev.month, week: prev.week };
+      if (legacyTodo !== null) {
+        forward.isTodo = legacyTodo;
+        backward.isTodo = prev.isTodo;
+      }
+      if (statusWrite !== undefined) {
+        forward.projectStatus = statusWrite;
+        backward.projectStatus = prev.projectStatus;
+        backward.projectItemId = prev.projectItemId;
+      }
       let issuePatch: { labels?: string[]; assignee?: string | null; milestone?: string | null } | null = null;
 
       if (bucket && bucket.field === "label" && bucket.prefix && bucket.bucket !== null) {
@@ -204,12 +244,24 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
 
       dispatch({ type: "replace", num, patch: forward });
       try {
+        // Status first — it's the GitHub mutation (and the likeliest failure,
+        // including the 409 github_not_linked case: jsonOrThrow raises the
+        // Connect modal AND throws, so the rollback below still runs).
+        if (statusWrite !== undefined) {
+          const res = await patchIssueProjectStatus(num, statusWrite);
+          dispatch({ type: "replace", num, patch: { projectItemId: res.itemId } });
+          if (res.addedToBoard) status?.onAddedToBoard?.(num);
+        }
         // Only PATCH roadmap if something actually changed.
-        if (rp.plannedMonth !== prev.month || rp.plannedWeek !== prev.week || rp.isTodo !== prev.isTodo) {
+        if (
+          rp.plannedMonth !== prev.month ||
+          rp.plannedWeek !== prev.week ||
+          (legacyTodo !== null && legacyTodo !== prev.isTodo)
+        ) {
           await patchRoadmap(num, {
             plannedMonth: rp.plannedMonth,
             plannedWeek: rp.plannedWeek,
-            isTodo: rp.isTodo,
+            ...(legacyTodo !== null ? { isTodo: legacyTodo } : {}),
           });
         }
         if (issuePatch) {
@@ -262,6 +314,21 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
       const prev = state.issues.find((i) => i.num === num);
       if (!prev) return false;
       return failOrRevert(num, { month }, { month: prev.month }, () => patchRoadmap(num, { plannedMonth: month }));
+    },
+    [state.issues, failOrRevert],
+  );
+
+  // App-only planning notes — PATCH /roadmap, never touches GitHub.
+  const setNotes = useCallback(
+    async (num: number, notes: string | null): Promise<boolean> => {
+      const prev = state.issues.find((i) => i.num === num);
+      if (!prev) return false;
+      return failOrRevert(
+        num,
+        { roadmapNotes: notes },
+        { roadmapNotes: prev.roadmapNotes },
+        () => patchRoadmap(num, { roadmapNotes: notes }),
+      );
     },
     [state.issues, failOrRevert],
   );
@@ -355,7 +422,10 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
         labels: payload.labels ?? [],
         updatedAt: new Date().toISOString(),
         isTodo: false,
+        roadmapNotes: null,
         effort: null,
+        projectStatus: null,
+        projectItemId: null,
       };
       dispatch({ type: "insert", issue: optimistic });
       try {
@@ -379,6 +449,7 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
     setState: setStateFn,
     setAssignee,
     setMonth,
+    setNotes,
     setBody,
     setLabels,
     setMilestone,

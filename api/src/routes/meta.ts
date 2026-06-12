@@ -3,6 +3,7 @@ import { db, getKv, setKv } from "../db.js";
 import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels, listRepoMilestones } from "../github.js";
 import type { BucketingField, BucketsInfo } from "../../../shared/types.js";
 import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterFilter.js";
+import { projectFilter } from "./projects.js";
 
 type IssueScanRow = { labels: string; assignee: string | null; milestone: string | null };
 
@@ -170,6 +171,7 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
       aiEnvDefault: (process.env.AI_MODEL ?? "").trim() || null,
       areas,
       repoSlug: getRepoSlug(),
+      projectPinned: projectFilter() !== null,
     };
   });
 }

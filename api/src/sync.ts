@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { db, getKv, setKv } from "./db.js";
 import { upsertSnapshot } from "./health.js";
 import { listWorkspaces } from "./workspace.js";
+import { refreshPinnedProject } from "./routes/projects.js";
 import {
   fetchAllIssues,
   fetchAllPulls,
@@ -22,9 +23,10 @@ let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 export function upsertIssue(i: GhIssue): void {
   db()
     .prepare(
-      `INSERT INTO issues(number,title,body,state,assignee,milestone,milestone_due,labels,updated_at,created_at,closed_at,raw)
-       VALUES(@number,@title,@body,@state,@assignee,@milestone,@milestone_due,@labels,@updated_at,@created_at,@closed_at,@raw)
+      `INSERT INTO issues(number,node_id,title,body,state,assignee,milestone,milestone_due,labels,updated_at,created_at,closed_at,raw)
+       VALUES(@number,@node_id,@title,@body,@state,@assignee,@milestone,@milestone_due,@labels,@updated_at,@created_at,@closed_at,@raw)
        ON CONFLICT(number) DO UPDATE SET
+         node_id=COALESCE(excluded.node_id, issues.node_id),
          title=excluded.title, body=excluded.body, state=excluded.state,
          assignee=excluded.assignee, milestone=excluded.milestone,
          milestone_due=excluded.milestone_due,
@@ -35,6 +37,7 @@ export function upsertIssue(i: GhIssue): void {
     )
     .run({
       number: i.number,
+      node_id: i.node_id,
       title: i.title,
       body: i.body,
       state: i.state,
@@ -223,6 +226,15 @@ export async function reconcile(): Promise<{
     console.error("milestone due reconcile failed", err);
   }
 
+  // Pinned-project refresh: project_items otherwise only refresh when the Kanban
+  // routes are hit, so Roadmap-only sessions would join stale status forever.
+  // Forces past the 60s freshness gate; no-op when GITHUB_PROJECT_NUMBER is unset.
+  try {
+    await refreshPinnedProject();
+  } catch (err) {
+    console.error("pinned project refresh failed", err);
+  }
+
   setKv("lastSyncAt", new Date().toISOString());
   return {
     issues: issues.length,
@@ -277,6 +289,7 @@ type WebhookIssuePayload = {
   action: string;
   issue: {
     number: number;
+    node_id?: string;
     title: string;
     body: string | null;
     state: "open" | "closed";
@@ -366,6 +379,7 @@ export function handleWebhook(event: string, payload: unknown): void {
     if (!p.issue) return;
     upsertIssue({
       number: p.issue.number,
+      node_id: p.issue.node_id ?? null,
       title: p.issue.title,
       body: p.issue.body,
       state: p.issue.state,

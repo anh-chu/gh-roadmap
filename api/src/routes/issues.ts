@@ -1,10 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db.js";
-import { createIssue, updateIssue, type IssueCreate, type IssuePatch } from "../github.js";
+import { createIssue, getRepoSlug, updateIssue, type IssueCreate, type IssuePatch } from "../github.js";
 import { runGithubWrite } from "../githubWriteIdentity.js";
 import { upsertIssue } from "../sync.js";
 import { getMasterFilter, masterFilterSql } from "../masterFilter.js";
 import { getWorkspace } from "../workspace.js";
+import { projectFilter } from "./projects.js";
+
+// Join the env-pinned project's items so each issue carries its board Status.
+// pin is a validated finite number (projectFilter), so inlining is safe. When no
+// project is pinned, select NULLs so the response shape stays constant.
+function pinnedProjectJoin(): { select: string; join: string } {
+  const pin = projectFilter();
+  if (pin === null) {
+    return { select: "NULL AS project_status, NULL AS project_item_id", join: "" };
+  }
+  // content_repo guards against same-numbered issues from other repos on the
+  // board; NULL keeps legacy rows mirrored before content_repo was stored.
+  const slug = (getRepoSlug() ?? "").replace(/'/g, "''");
+  return {
+    select: "p.status_label AS project_status, p.item_id AS project_item_id",
+    join: `LEFT JOIN project_items p ON p.content_number = i.number AND p.content_type = 'Issue' AND p.project_number = ${pin} AND (p.content_repo = '${slug}' OR p.content_repo IS NULL)`,
+  };
+}
 
 type IssueJoinedRow = {
   number: number;
@@ -21,6 +39,8 @@ type IssueJoinedRow = {
   roadmap_notes: string | null;
   position: number | null;
   is_todo: number | null;
+  project_status: string | null;
+  project_item_id: string | null;
 };
 
 function rowToJson(r: IssueJoinedRow) {
@@ -39,6 +59,8 @@ function rowToJson(r: IssueJoinedRow) {
     roadmapNotes: r.roadmap_notes,
     position: r.position,
     isTodo: !!r.is_todo,
+    projectStatus: r.project_status,
+    projectItemId: r.project_item_id,
   };
 }
 
@@ -72,10 +94,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         return await runGithubWrite(req, reply, async (octo) => {
           const created = await createIssue(octo, { ...req.body, title, labels });
           upsertIssue(created);
+          const pj = pinnedProjectJoin();
           const row = db()
             .prepare(
-              `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
+              `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
                FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
+               ${pj.join}
                WHERE i.number = ?`,
             )
             .get(req.workspaceId, created.number) as IssueJoinedRow;
@@ -92,12 +116,14 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const mf = masterFilterSql(getMasterFilter(req.workspaceId));
     const where = mf ? `WHERE ${mf.sql}` : "";
     const params = mf ? mf.params : [];
+    const pj = pinnedProjectJoin();
     const rows = db()
       .prepare(
         `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at,
-                m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
+                m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
          FROM issues i
          LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
+         ${pj.join}
          ${where}
          ORDER BY i.updated_at DESC`,
       )
@@ -148,10 +174,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         return await runGithubWrite(req, reply, async (octo) => {
           const updated = await updateIssue(octo, num, patch);
           upsertIssue(updated);
+          const pj = pinnedProjectJoin();
           const row = db()
             .prepare(
-              `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo
+              `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
                FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
+               ${pj.join}
                WHERE i.number = ?`,
             )
             .get(req.workspaceId, num) as IssueJoinedRow;

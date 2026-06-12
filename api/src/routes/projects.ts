@@ -4,6 +4,8 @@ import {
   listRepoProjects,
   fetchProjectItems,
   updateProjectItemStatus,
+  addProjectV2ItemById,
+  getRepoSlug,
   type GhProjectSummary,
   type GhProjectItemRaw,
 } from "../github.js";
@@ -119,7 +121,7 @@ function replaceItems(projectNumber: number, items: GhProjectItemRaw[], now: str
 
 // Lock the Kanban view to a single project when GITHUB_PROJECT_NUMBER is set —
 // mirrors the single-repo lock via GITHUB_OWNER/GITHUB_REPO.
-function projectFilter(): number | null {
+export function projectFilter(): number | null {
   const raw = process.env.GITHUB_PROJECT_NUMBER ?? "";
   if (!raw.trim()) return null;
   const n = Number(raw);
@@ -156,6 +158,16 @@ async function refreshOne(num: number): Promise<ProjectRow | null> {
   const items = await fetchProjectItems(match.nodeId, match.statusFieldId);
   replaceItems(num, items, now);
   return getProjectRow(num) ?? null;
+}
+
+// Reconcile hook: force-refresh the env-pinned project mirror (no 60s freshness
+// gate — that gate only guards interactive Kanban paths). Silent no-op when
+// GITHUB_PROJECT_NUMBER is unset. Also guarantees the projects row (node id +
+// fields_json) exists for status writes.
+export async function refreshPinnedProject(): Promise<void> {
+  const pin = projectFilter();
+  if (pin === null) return;
+  await refreshOne(pin);
 }
 
 function isFresh(row: ProjectRow): boolean {
@@ -357,6 +369,130 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
         .prepare("SELECT * FROM project_items WHERE item_id = ?")
         .get(itemRow.item_id) as ItemRow;
       return itemRowToJson(updated);
+    },
+  );
+
+  // Set the pinned board's Status for an issue by *status name* (the Roadmap meta-column
+  // write path). Resolves the option id server-side from the project's stored Status
+  // options. Side effect: when the issue is not yet on the board, it is first added via
+  // addProjectV2ItemById — a real shared mutation (the item appears on the team board);
+  // the response flags it as `addedToBoard` and it is logged, never silent.
+  app.patch<{
+    Params: { issueNum: string };
+    Body: { statusName: string | null };
+  }>(
+    "/api/projects/pinned/issues/:issueNum/status",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["statusName"],
+          additionalProperties: false,
+          properties: {
+            statusName: { type: ["string", "null"] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const issueNum = Number(req.params.issueNum);
+      if (!Number.isFinite(issueNum)) return reply.code(400).send({ error: "invalid issue number" });
+      const pin = projectFilter();
+      if (pin === null) {
+        return reply.code(400).send({ error: "no pinned project (GITHUB_PROJECT_NUMBER unset)" });
+      }
+      // Ensure the project row (node id + Status options) exists — the add-to-board
+      // path needs it even if the Kanban tab was never opened.
+      let projectRow = getProjectRow(pin);
+      if (!projectRow) {
+        try {
+          projectRow = await refreshOne(pin) ?? undefined;
+        } catch (err) {
+          const detail = explainGhError(err);
+          req.log.error({ err, detail }, "pinned project fetch failed");
+          return reply.code(502).send({ error: "github project fetch failed", detail });
+        }
+      }
+      if (!projectRow) return reply.code(404).send({ error: "pinned project not found" });
+      if (!projectRow.status_field_id) {
+        return reply.code(400).send({ error: "project has no Status field" });
+      }
+
+      const statusName = req.body.statusName;
+      const options = statusOptionsFromRow(projectRow);
+      let newOptionId: string | null = null;
+      if (statusName !== null) {
+        const opt = options.find((o) => o.name === statusName);
+        if (!opt) {
+          return reply.code(400).send({
+            error: `no Status option named "${statusName}" on board #${pin}`,
+          });
+        }
+        newOptionId = opt.id;
+      }
+      const newLabel = statusName;
+
+      const itemRow = db()
+        .prepare(
+          "SELECT * FROM project_items WHERE project_number = ? AND content_type = 'Issue' AND content_number = ? AND (content_repo = ? OR content_repo IS NULL)",
+        )
+        .get(pin, issueNum, getRepoSlug() ?? "") as ItemRow | undefined;
+
+      const issue = db()
+        .prepare("SELECT number, title, node_id FROM issues WHERE number = ?")
+        .get(issueNum) as { number: number; title: string; node_id: string | null } | undefined;
+      if (!issue) return reply.code(404).send({ error: "issue not found" });
+      if (!itemRow && !issue.node_id) {
+        // Old row mirrored before node_id was synced — a manual sync repairs it.
+        return reply.code(404).send({ error: "issue node id not mirrored yet — run a sync, then retry" });
+      }
+
+      let itemId = itemRow?.item_id ?? null;
+      let addedToBoard = false;
+      try {
+        await runGithubWrite(req, reply, async (octo) => {
+          if (!itemId) {
+            itemId = await addProjectV2ItemById(octo, projectRow!.node_id, issue.node_id!);
+            addedToBoard = true;
+            req.log.info({ issueNum, project: pin, itemId }, "issue added to project board");
+          }
+          await updateProjectItemStatus(
+            octo,
+            projectRow!.node_id,
+            itemId,
+            projectRow!.status_field_id!,
+            newOptionId,
+          );
+        });
+        if (reply.sent) return; // 409 link/reauth already sent by the wrapper
+      } catch (err) {
+        const detail = explainGhError(err);
+        req.log.error({ err, detail }, "project status update failed");
+        return reply.code(502).send({ error: "github status update failed", detail });
+      }
+
+      const now = new Date().toISOString();
+      if (addedToBoard) {
+        db()
+          .prepare(
+            `INSERT INTO project_items(item_id, project_number, content_type, content_number, content_title,
+               content_repo, status_option_id, status_label, assignees_json, raw_json, last_synced_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)
+             ON CONFLICT(item_id) DO UPDATE SET
+               status_option_id=excluded.status_option_id, status_label=excluded.status_label,
+               last_synced_at=excluded.last_synced_at`,
+          )
+          .run(itemId, pin, "Issue", issueNum, issue.title, null, newOptionId, newLabel, "[]", "{}", now);
+      } else {
+        db()
+          .prepare(
+            `UPDATE project_items SET status_option_id = ?, status_label = ?, last_synced_at = ?
+             WHERE item_id = ?`,
+          )
+          .run(newOptionId, newLabel, now, itemId);
+      }
+
+      return { itemId, statusOptionId: newOptionId, statusLabel: newLabel, addedToBoard };
     },
   );
 }

@@ -26,6 +26,8 @@ type ConfigRow = {
   flow_cold_days: number;
   flow_fresh_days: number;
   pin_meta_cols: number;
+  todo_status_name: string;
+  backlog_status_name: string;
   predict_pr_stale_days: number;
   predict_pr_min_age: number;
   predict_review_wait_days: number;
@@ -60,7 +62,7 @@ function parseList(raw: string): string[] {
 function readConfig(workspaceId: number): WorkspaceConfig {
   const row = db()
     .prepare(
-      "SELECT bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, todo_stale_days, flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, pin_meta_cols, predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours, ai_model_summary, ai_model_progress, ai_model_extract, updated_at FROM workspace_config WHERE id = ?",
+      "SELECT bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, todo_stale_days, flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, pin_meta_cols, todo_status_name, backlog_status_name, predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours, ai_model_summary, ai_model_progress, ai_model_extract, updated_at FROM workspace_config WHERE id = ?",
     )
     .get(workspaceId) as ConfigRow | undefined;
   if (!row) {
@@ -81,6 +83,8 @@ function readConfig(workspaceId: number): WorkspaceConfig {
       flowColdDays: 60,
       flowFreshDays: 7,
       pinMetaCols: true,
+      todoStatusName: "To Do",
+      backlogStatusName: "Backlog",
       predictPrStaleDays: 3,
       predictPrMinAge: 7,
       predictReviewWaitDays: 2,
@@ -109,6 +113,8 @@ function readConfig(workspaceId: number): WorkspaceConfig {
     flowColdDays: row.flow_cold_days,
     flowFreshDays: row.flow_fresh_days,
     pinMetaCols: row.pin_meta_cols !== 0,
+    todoStatusName: row.todo_status_name,
+    backlogStatusName: row.backlog_status_name,
     predictPrStaleDays: row.predict_pr_stale_days,
     predictPrMinAge: row.predict_pr_min_age,
     predictReviewWaitDays: row.predict_review_wait_days,
@@ -177,6 +183,8 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       flowColdDays?: number;
       flowFreshDays?: number;
       pinMetaCols?: boolean;
+      todoStatusName?: string;
+      backlogStatusName?: string;
       predictPrStaleDays?: number;
       predictPrMinAge?: number;
       predictReviewWaitDays?: number;
@@ -210,6 +218,8 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
             flowColdDays: { type: "number" },
             flowFreshDays: { type: "number" },
             pinMetaCols: { type: "boolean" },
+            todoStatusName: { type: "string" },
+            backlogStatusName: { type: "string" },
             predictPrStaleDays: { type: "number" },
             predictPrMinAge: { type: "number" },
             predictReviewWaitDays: { type: "number" },
@@ -340,6 +350,22 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         nextPinMetaCols = !!req.body.pinMetaCols;
       }
 
+      let nextTodoStatusName = current.todoStatusName;
+      let nextBacklogStatusName = current.backlogStatusName;
+      if (req.body.todoStatusName !== undefined) {
+        const v = req.body.todoStatusName.trim();
+        if (v.length === 0 || v.length > 64) return reply.code(400).send({ error: "todoStatusName must be 1-64 chars" });
+        nextTodoStatusName = v;
+      }
+      if (req.body.backlogStatusName !== undefined) {
+        const v = req.body.backlogStatusName.trim();
+        if (v.length === 0 || v.length > 64) return reply.code(400).send({ error: "backlogStatusName must be 1-64 chars" });
+        nextBacklogStatusName = v;
+      }
+      if (nextTodoStatusName === nextBacklogStatusName) {
+        return reply.code(400).send({ error: "todoStatusName and backlogStatusName must differ" });
+      }
+
       let nextAiModelSummary = current.aiModelSummary;
       let nextAiModelProgress = current.aiModelProgress;
       let nextAiModelExtract = current.aiModelExtract;
@@ -370,7 +396,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       const now = new Date().toISOString();
       db()
         .prepare(
-          "UPDATE workspace_config SET bucketing_field = ?, bucketing_value = ?, master_filter_include = ?, master_filter_exclude = ?, range_granularity = ?, range_count = ?, range_offset = ?, todo_stale_days = ?, flow_shipping_hours = ?, flow_review_days = ?, flow_code_days = ?, flow_discussion_days = ?, flow_stall_days = ?, flow_cold_days = ?, flow_fresh_days = ?, pin_meta_cols = ?, predict_pr_stale_days = ?, predict_pr_min_age = ?, predict_review_wait_days = ?, predict_promise_confidence_min = ?, predict_reply_overdue_hours = ?, ai_model_summary = ?, ai_model_progress = ?, ai_model_extract = ?, updated_at = ? WHERE id = ?",
+          "UPDATE workspace_config SET bucketing_field = ?, bucketing_value = ?, master_filter_include = ?, master_filter_exclude = ?, range_granularity = ?, range_count = ?, range_offset = ?, todo_stale_days = ?, flow_shipping_hours = ?, flow_review_days = ?, flow_code_days = ?, flow_discussion_days = ?, flow_stall_days = ?, flow_cold_days = ?, flow_fresh_days = ?, pin_meta_cols = ?, todo_status_name = ?, backlog_status_name = ?, predict_pr_stale_days = ?, predict_pr_min_age = ?, predict_review_wait_days = ?, predict_promise_confidence_min = ?, predict_reply_overdue_hours = ?, ai_model_summary = ?, ai_model_progress = ?, ai_model_extract = ?, updated_at = ? WHERE id = ?",
         )
         .run(
           nextField,
@@ -389,6 +415,8 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           nextFlowColdDays,
           nextFlowFreshDays,
           nextPinMetaCols ? 1 : 0,
+          nextTodoStatusName,
+          nextBacklogStatusName,
           nextPredictPrStaleDays,
           nextPredictPrMinAge,
           nextPredictReviewWaitDays,
@@ -418,6 +446,8 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         flowColdDays: nextFlowColdDays,
         flowFreshDays: nextFlowFreshDays,
         pinMetaCols: nextPinMetaCols,
+        todoStatusName: nextTodoStatusName,
+        backlogStatusName: nextBacklogStatusName,
         predictPrStaleDays: nextPredictPrStaleDays,
         predictPrMinAge: nextPredictPrMinAge,
         predictReviewWaitDays: nextPredictReviewWaitDays,

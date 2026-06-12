@@ -292,6 +292,21 @@ export async function patchProjectItemStatus(
   return jsonOrThrow<ProjectItem>(r);
 }
 
+// Roadmap meta-column write: set the pinned board's Status for an issue by name.
+// Server resolves the option id; off-board issues are added to the board first
+// (response flags it via addedToBoard).
+export async function patchIssueProjectStatus(
+  issueNum: number,
+  statusName: string | null,
+): Promise<{ itemId: string; statusOptionId: string | null; statusLabel: string | null; addedToBoard: boolean }> {
+  const r = await fetch(`/api/projects/pinned/issues/${issueNum}/status`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ statusName }),
+  });
+  return jsonOrThrow(r);
+}
+
 export async function fetchFlow(): Promise<FlowResultMap> {
   const r = await fetch("/api/flow");
   return jsonOrThrow<FlowResultMap>(r);

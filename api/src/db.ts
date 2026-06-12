@@ -93,7 +93,7 @@ export function initDb(path: string): Database.Database {
       ren            TEXT, -- deprecated: R/E/N taxonomy removed; column kept (SQLite drop is destructive), reads/writes are no-ops
       roadmap_notes  TEXT,
       position       INTEGER,
-      is_todo        INTEGER NOT NULL DEFAULT 0,
+      is_todo        INTEGER NOT NULL DEFAULT 0, -- deprecated: TODO/Backlog placement now reads Projects Status (project_items.status_label); column kept for old data, no longer drives meta-column placement
       app_updated_at TEXT NOT NULL,
       PRIMARY KEY (workspace_id, issue_number)
     );
@@ -337,6 +337,7 @@ export function initDb(path: string): Database.Database {
   if (!issueColNames.has("created_at")) db.exec("ALTER TABLE issues ADD COLUMN created_at TEXT");
   if (!issueColNames.has("closed_at")) db.exec("ALTER TABLE issues ADD COLUMN closed_at TEXT");
   if (!issueColNames.has("milestone_due")) db.exec("ALTER TABLE issues ADD COLUMN milestone_due TEXT");
+  if (!issueColNames.has("node_id")) db.exec("ALTER TABLE issues ADD COLUMN node_id TEXT");
 
   // Schedule trend: snapshots predate on_time. Backfill repopulates it.
   const hsCols = db.prepare("PRAGMA table_info(health_snapshots)").all() as { name: string }[];
@@ -441,6 +442,14 @@ export function initDb(path: string): Database.Database {
   }
   if (!wcColNames.has("ai_model_extract")) {
     db.exec("ALTER TABLE workspace_config ADD COLUMN ai_model_extract TEXT");
+  }
+  // Status-as-Projects: which pinned-project Status option names map to the
+  // Roadmap board's TODO / Backlog meta columns. Per-pod by construction.
+  if (!wcColNames.has("todo_status_name")) {
+    db.exec("ALTER TABLE workspace_config ADD COLUMN todo_status_name TEXT NOT NULL DEFAULT 'To Do'");
+  }
+  if (!wcColNames.has("backlog_status_name")) {
+    db.exec("ALTER TABLE workspace_config ADD COLUMN backlog_status_name TEXT NOT NULL DEFAULT 'Backlog'");
   }
 
   // Mini-CRM: structured profile fields on accounts. No CRM source historically — these

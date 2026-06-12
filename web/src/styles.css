@@ -606,6 +606,11 @@ button.av {
   color: var(--accent);
   text-transform: uppercase;
 }
+/* Backlog variant — muted, not the accent. */
+.list-todo.list-backlog {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
 
 /* ─────────────── CARD ─────────────── */
 .card {
@@ -1262,6 +1267,21 @@ a.d-num:hover { color: var(--accent); background: var(--accent-soft); }
   font-size: 11px;
   padding: 1px 6px;
   width: 130px;
+}
+
+/* App-only planning notes (Drawer meta row) */
+.d-notes { width: 100%; }
+.d-notes-input {
+  width: 100%;
+  font-size: 12px;
+  padding: 4px 6px;
+  resize: vertical;
+  min-height: 38px;
+}
+.d-notes-read {
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
 }
 
 .d-desc-head {

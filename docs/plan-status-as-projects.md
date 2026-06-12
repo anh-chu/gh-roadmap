@@ -108,6 +108,15 @@ Field already exists end-to-end (`roadmap_notes` column, `RoadmapPatchBody.roadm
 6. B (notes UI) — independent, any time.
 7. Final: `pnpm typecheck` green + `pnpm dev` walkthrough: drag Todo↔Backlog (on-board + off-board), edit a note.
 
-## Tradeoff accepted (recorded)
-Single authority for status; cost is a GitHub round-trip per status change + 60s poll staleness, both hidden by
-optimistic UI. `is_todo` deprecated, not deleted (preserve existing data; remove in a later cleanup).
+## Tradeoffs accepted (recorded)
+- Single authority for status; cost is a GitHub round-trip per status change + 60s poll staleness, both hidden by
+  optimistic UI. `is_todo` deprecated, not deleted (preserve existing data; remove in a later cleanup).
+- **Dragging a TODO/Backlog card onto a time column clears its board Status to "No status"** — a real shared
+  GitHub mutation, required by the placement precedence (Status overrides planned date). Goes through the same
+  runGithubWrite path; not separately toasted (unlike add-to-board) — accepted as implicit, the drag *is* the act.
+- **Partial-failure divergence in `move()`:** the Status write and the roadmap PATCH are not transactional; if the
+  first succeeds and the second fails, the local rollback briefly disagrees with the board until the next
+  refetch/reconcile self-heals (server mirror is already correct). Accepted — no compensating GitHub write.
+- **No pinned project (`GITHUB_PROJECT_NUMBER` unset) → legacy fallback:** meta columns revert to the old
+  `is_todo`/backlog placement and the `/roadmap` PATCH write path (`MetaResponse.projectPinned` gates it).
+  Projects-backed status simply doesn't exist in that mode.

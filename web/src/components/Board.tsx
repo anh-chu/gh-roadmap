@@ -48,6 +48,9 @@ interface BoardProps {
   passFilter: (i: Issue) => boolean;
   flow: Map<number, FlowResult>;
   insightCounts?: Record<number, number>;
+  // False when GITHUB_PROJECT_NUMBER is unset — meta columns degrade to the
+  // legacy app-only model (is_todo → TODO, unplanned → Backlog).
+  projectPinned: boolean;
 }
 
 function ColHead({ c, count, done }: { c: BoardCol; count: number; done: number }): JSX.Element {
@@ -137,7 +140,7 @@ function issueBucket(i: Issue, buckets: BucketsInfo): string | null {
   return i.milestone ?? NO_MILESTONE;
 }
 
-export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flow, insightCounts }: BoardProps): JSX.Element {
+export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flow, insightCounts, projectPinned }: BoardProps): JSX.Element {
   const granularity = config.rangeGranularity;
   const timeCols = buildColumns(config);
   const metaCols: BoardCol[] = [TODO_COL, BACKLOG_COL];
@@ -172,10 +175,19 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   };
 
   // For each issue, derive its column key under the active granularity.
-  // TODO overrides everything; then planned date → time col; else backlog.
+  // TODO/Backlog placement reads the GitHub Projects Status (single source of
+  // truth; isTodo is deprecated): Todo status overrides everything; then planned
+  // date → time col; then Backlog status; else off-grid (status unset = untriaged).
   function colKeyForIssue(i: Issue): string {
-    if (i.isTodo) return "todo";
-    return issueColumnKey(granularity, i.month, i.week) ?? "backlog";
+    if (!projectPinned) {
+      // Legacy model (no pinned project): is_todo drives TODO, unplanned → Backlog.
+      if (i.isTodo) return "todo";
+      return issueColumnKey(granularity, i.month, i.week) ?? "backlog";
+    }
+    if (i.projectStatus === config.todoStatusName) return "todo";
+    const timeKey = issueColumnKey(granularity, i.month, i.week);
+    if (timeKey) return timeKey;
+    return i.projectStatus === config.backlogStatusName ? "backlog" : "untriaged";
   }
 
   function renderBucketLabel(bucket: string, isLast: boolean): JSX.Element {

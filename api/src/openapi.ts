@@ -602,6 +602,15 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           "x-github-write": true,
         }),
       },
+      "/api/projects/pinned/issues/{issueNum}/status": {
+        patch: op("projects", "setIssueProjectStatus", "Set the pinned board's Status for an issue by status name (null clears it). Side effect: an issue not yet on the board is first added via addProjectV2ItemById — a real shared mutation flagged in the response as addedToBoard.", {
+          parameters: [param("issueNum", "Issue number")],
+          requestBody: body({ type: "object", required: ["statusName"], properties: { statusName: nullableString }, additionalProperties: false }),
+          responses: okGh({ type: "object", additionalProperties: true }),
+          "x-side-effects": true,
+          "x-github-write": true,
+        }),
+      },
       "/api/sync": {
         post: op("sync", "runSync", "Run manual GitHub and insights reconciliation.", {
           requestBody: body({ type: "object", additionalProperties: true }, false),
@@ -646,6 +655,8 @@ const components: Record<string, JsonSchema> = {
       labels: { type: "array", items: { type: "string" } }, updatedAt: { type: "string" },
       plannedMonth: nullableString, plannedWeek: nullableString, roadmapNotes: nullableString,
       position: { type: ["integer", "null"] }, isTodo: { type: "boolean" },
+      projectStatus: { ...nullableString, description: "Status label on the pinned GitHub Project (GITHUB_PROJECT_NUMBER); null when off-board or no project pinned" },
+      projectItemId: { ...nullableString, description: "Pinned-project item id (used for project status writes); null when off-board" },
     },
     additionalProperties: false,
   },
@@ -747,8 +758,8 @@ const components: Record<string, JsonSchema> = {
     required: ["email", "name", "role", "envAdmin", "createdAt", "updatedAt"],
   },
   CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "string" } } }, required: ["labels", "milestones"] },
-  WorkspaceConfig: { type: "object", additionalProperties: true },
-  WorkspaceConfigPatch: { type: "object", additionalProperties: true },
+  WorkspaceConfig: { type: "object", additionalProperties: true, description: "Per-pod workspace configuration. Includes `todoStatusName` (default \"To Do\") and `backlogStatusName` (default \"Backlog\") — the pinned GitHub Project Status option names that back the Roadmap board's TODO / Backlog meta columns." },
+  WorkspaceConfigPatch: { type: "object", additionalProperties: true, description: "Partial workspace config update (admin only). Accepts `todoStatusName` / `backlogStatusName` (1-64 chars) among the existing fields." },
   Workspace: {
     type: "object",
     properties: {

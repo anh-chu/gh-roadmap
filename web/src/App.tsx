@@ -172,10 +172,19 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
       target: Parameters<typeof issuesApi.move>[1],
       bucket?: Parameters<typeof issuesApi.move>[2],
     ) => {
-      const ok = await issuesApi.move(num, target, bucket);
+      // No pinned project → legacy is_todo placement: omit status so move()
+      // never calls the project-status endpoint (which would 400).
+      const status = meta?.projectPinned
+        ? {
+            todo: config.todoStatusName,
+            backlog: config.backlogStatusName,
+            onAddedToBoard: (n: number) => toast.show(`#${n} added to the project board`),
+          }
+        : undefined;
+      const ok = await issuesApi.move(num, target, bucket, status);
       if (ok) toast.show("Saved");
     },
-    [issuesApi, toast],
+    [issuesApi, toast, meta?.projectPinned, config.todoStatusName, config.backlogStatusName],
   );
 
   const handleTitle = useCallback(
@@ -204,10 +213,10 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
     [issuesApi, toast],
   );
 
-  const handleMonth = useCallback(
-    async (num: number, m: string | null) => {
-      const ok = await issuesApi.setMonth(num, m);
-      if (ok) toast.show("Saved");
+  const handleNotes = useCallback(
+    async (num: number, notes: string | null) => {
+      const ok = await issuesApi.setNotes(num, notes);
+      if (ok) toast.show("Note saved");
     },
     [issuesApi, toast],
   );
@@ -293,7 +302,7 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
       ) : tab === "accounts" ? (
         <Accounts onOpenAccount={openAccount} />
       ) : tab === "list" ? (
-        <List issues={issues} passFilter={passFilter} onOpen={handleOpen} flow={flow} insightCounts={insightCounts} />
+        <List issues={issues} passFilter={passFilter} onOpen={handleOpen} flow={flow} insightCounts={insightCounts} todoStatusName={config.todoStatusName} backlogStatusName={config.backlogStatusName} />
       ) : tab === "kanban" ? (
         <Kanban
           issues={issues}
@@ -313,6 +322,7 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
           passFilter={passFilter}
           flow={flow}
           insightCounts={insightCounts}
+          projectPinned={meta?.projectPinned ?? false}
         />
       ) : (
         <main className="board" style={{ padding: 40, textAlign: "center", color: "var(--ink-4)" }}>
@@ -329,15 +339,15 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
         flowResult={openIssue ? flow.get(openIssue.num) : undefined}
         issuesByNum={issuesByNum}
         repoSlug={meta?.repoSlug ?? null}
+        todoStatusName={config.todoStatusName}
+        backlogStatusName={config.backlogStatusName}
         onClose={handleClose}
         onTitle={handleTitle}
         onStateToggle={handleStateToggle}
         onAssignee={handleAssignee}
-        onMonth={handleMonth}
+        onNotes={handleNotes}
         onMove={(num, target) => {
-          void issuesApi.move(num, target).then((ok) => {
-            if (ok) toast.show("Saved");
-          });
+          void handleMove(num, target);
         }}
         onBody={handleBody}
         onLabels={handleLabels}

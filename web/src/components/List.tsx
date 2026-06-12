@@ -20,6 +20,9 @@ interface ListProps {
   onOpen: (i: Issue) => void;
   flow: Map<number, FlowResult>;
   insightCounts: Record<number, number>;
+  // Projects Status option names backing the TODO/Backlog meta columns (isTodo is deprecated).
+  todoStatusName: string;
+  backlogStatusName: string;
 }
 
 // Coarse priority order for sort: higher = more momentum/urgent.
@@ -71,6 +74,7 @@ function sortValue(
   key: SortKey,
   flow: Map<number, FlowResult>,
   insightCounts: Record<number, number>,
+  statusNames: { todo: string; backlog: string },
 ): string | number {
   switch (key) {
     case "num":
@@ -89,8 +93,12 @@ function sortValue(
     case "assignee":
       return i.assignee.toLowerCase();
     case "planned":
-      // Sort: week iso > month iso > "" (backlog).
-      return i.week ?? i.month ?? "";
+      // Group, then date within: TODO status first, dated (week beats month) ascending,
+      // then Backlog status, then untriaged — mirrors the board's placement precedence.
+      if (i.projectStatus === statusNames.todo) return "0";
+      if (i.projectStatus === statusNames.backlog) return "2";
+      if (i.week ?? i.month) return `1:${i.week ?? i.month}`;
+      return "3";
     case "updated":
       return i.updatedAt;
     case "signal":
@@ -104,9 +112,10 @@ function compare(
   sort: SortState,
   flow: Map<number, FlowResult>,
   insightCounts: Record<number, number>,
+  statusNames: { todo: string; backlog: string },
 ): number {
-  const va = sortValue(a, sort.key, flow, insightCounts);
-  const vb = sortValue(b, sort.key, flow, insightCounts);
+  const va = sortValue(a, sort.key, flow, insightCounts, statusNames);
+  const vb = sortValue(b, sort.key, flow, insightCounts, statusNames);
   let cmp: number;
   if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
   else cmp = String(va).localeCompare(String(vb));
@@ -144,13 +153,14 @@ function avatarClass(name: string): string {
   return `av av-${slug}`;
 }
 
-export function List({ issues, passFilter, onOpen, flow, insightCounts }: ListProps): JSX.Element {
+export function List({ issues, passFilter, onOpen, flow, insightCounts, todoStatusName, backlogStatusName }: ListProps): JSX.Element {
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
 
   const visible = useMemo(() => {
     const filtered = issues.filter(passFilter);
-    return [...filtered].sort((a, b) => compare(a, b, sort, flow, insightCounts));
-  }, [issues, passFilter, sort, flow, insightCounts]);
+    const statusNames = { todo: todoStatusName, backlog: backlogStatusName };
+    return [...filtered].sort((a, b) => compare(a, b, sort, flow, insightCounts, statusNames));
+  }, [issues, passFilter, sort, flow, insightCounts, todoStatusName, backlogStatusName]);
 
   // Click cycle: sort asc -> sort desc -> reset to default.
   // For the "updated" column the default is desc, so the cycle starts at desc -> asc -> reset.
@@ -236,7 +246,13 @@ export function List({ issues, passFilter, onOpen, flow, insightCounts }: ListPr
                     )}
                   </td>
                   <td className="list-td list-c-planned">
-                    {i.isTodo ? <span className="list-todo">TODO</span> : formatPlanned(i)}
+                    {i.projectStatus === todoStatusName ? (
+                      <span className="list-todo">TODO</span>
+                    ) : i.projectStatus === backlogStatusName ? (
+                      <span className="list-todo list-backlog">BACKLOG</span>
+                    ) : (
+                      formatPlanned(i)
+                    )}
                   </td>
                   <td className="list-td list-c-updated">{formatRelative(i.updatedAt)}</td>
                 </tr>

@@ -17,6 +17,9 @@ export interface ApiIssue {
   roadmapNotes: string | null;
   position: number | null;
   isTodo: boolean;
+  // Pinned GitHub Project (GITHUB_PROJECT_NUMBER) mirror — null when off-board or no project pinned.
+  projectStatus: string | null;
+  projectItemId: string | null;
 }
 
 export interface ApiComment {
@@ -74,6 +77,9 @@ export interface WorkspaceConfig {
   flowColdDays: number;
   flowFreshDays: number;
   pinMetaCols: boolean;
+  // Pinned-project Status option names backing the TODO / Backlog meta columns.
+  todoStatusName: string;
+  backlogStatusName: string;
   predictPrStaleDays: number;
   predictPrMinAge: number;
   predictReviewWaitDays: number;
@@ -153,6 +159,9 @@ export interface MetaResponse {
   areas: string[];
   // "owner/repo" of the issues repo, for building GitHub web links. Null when sync unconfigured.
   repoSlug: string | null;
+  // True when GITHUB_PROJECT_NUMBER pins a project — drives status-as-projects
+  // meta columns; false degrades the Board to the legacy is_todo/backlog model.
+  projectPinned: boolean;
 }
 
 // Full repo label + milestone catalog (all repo values, not just in-use).
@@ -198,7 +207,10 @@ export interface Issue {
   labels: string[];
   updatedAt: string;
   isTodo: boolean;
+  roadmapNotes: string | null; // app-only planning notes, never written to GitHub
   effort: EffortRating | null; // from an `effort:*` label, else null
+  projectStatus: string | null; // pinned-project board Status label; null when off-board
+  projectItemId: string | null; // pinned-project item id (needed for status writes)
 }
 
 export interface ApiPull {
@@ -729,6 +741,9 @@ export function fromApi(r: ApiIssue): Issue {
     labels,
     updatedAt: r.updatedAt,
     isTodo: !!r.isTodo,
+    roadmapNotes: r.roadmapNotes ?? null,
     effort: effortFromLabels(labels),
+    projectStatus: r.projectStatus ?? null,
+    projectItemId: r.projectItemId ?? null,
   };
 }

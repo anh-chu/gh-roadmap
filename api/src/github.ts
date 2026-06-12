@@ -2,6 +2,7 @@ import { Octokit } from "octokit";
 
 export type GhIssue = {
   number: number;
+  node_id: string | null; // GraphQL node id; null on payloads that lack it (never overwrites stored value)
   title: string;
   body: string | null;
   state: "open" | "closed";
@@ -90,6 +91,7 @@ export async function getAuthenticatedLogin(): Promise<string | null> {
 }
 
 type GqlIssueNode = {
+  id: string;
   number: number;
   title: string;
   body: string | null;
@@ -127,6 +129,7 @@ const ISSUES_QUERY = /* GraphQL */ `
       issues(first: 50, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }, states: [OPEN, CLOSED]) {
         pageInfo { hasNextPage endCursor }
         nodes {
+          id
           number
           title
           body
@@ -374,6 +377,7 @@ export async function fetchAllIssues(lastSyncAt?: string): Promise<{ issues: GhI
       }
       issues.push({
         number: n.number,
+        node_id: n.id,
         title: n.title,
         body: n.body,
         state: n.state === "OPEN" ? "open" : "closed",
@@ -523,6 +527,7 @@ export async function updateIssue(octo: Octokit, num: number, patch: IssuePatch)
   const { data } = await octo.rest.issues.update(params as never);
   return {
     number: data.number,
+    node_id: data.node_id ?? null,
     title: data.title,
     body: data.body ?? null,
     state: data.state === "open" ? "open" : "closed",
@@ -557,6 +562,7 @@ export async function createIssue(octo: Octokit, input: IssueCreate): Promise<Gh
   const { data } = await octo.rest.issues.create(params as never);
   return {
     number: data.number,
+    node_id: data.node_id ?? null,
     title: data.title,
     body: data.body ?? null,
     state: data.state === "open" ? "open" : "closed",
@@ -922,6 +928,28 @@ export async function updateProjectItemStatus(
     fieldId: statusFieldId,
     optionId,
   });
+}
+
+const ADD_ITEM_MUTATION = /* GraphQL */ `
+  mutation ($projectId: ID!, $contentId: ID!) {
+    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+      item { id }
+    }
+  }
+`;
+
+// Add an issue (by GraphQL node id) to a Projects v2 board. Idempotent on GitHub's
+// side — re-adding an existing item returns the existing item id.
+export async function addProjectV2ItemById(
+  octo: Octokit,
+  projectNodeId: string,
+  contentNodeId: string,
+): Promise<string> {
+  const res = await octo.graphql<{ addProjectV2ItemById: { item: { id: string } } }>(
+    ADD_ITEM_MUTATION,
+    { projectId: projectNodeId, contentId: contentNodeId },
+  );
+  return res.addProjectV2ItemById.item.id;
 }
 
 // ─────────────── ISSUE TIMELINE (flow-state mirror) ───────────────
