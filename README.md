@@ -94,15 +94,27 @@ header **Users** panel (`GET /api/users`, `PATCH /api/users/:email/role`). With 
 role system is dormant — the local user is admin. Viewer write affordances are hidden in the
 UI; the server enforces regardless.
 
+### Multi-pod workspaces
+
+Several pods share one instance: one DB and one reconcile loop mirror the whole product repo;
+each pod is a read-time view via its own master filter. Planning fields, health snapshots, AI
+model overrides, and the Progress/PM-action AI caches are per-pod; accounts + insights stay
+shared org-wide. Any signed-in user can view any pod and switch via the header pod control
+(hidden with a single pod); admins manage pods there too (create / rename / archive — never
+delete). New issues are auto-labeled `pod:<slug>` for the active pod. Editing a pod's base
+filter is admin-only; per-user narrowing is the client-side Filter popover.
+
 ### Per-user GitHub write identity (team mode, optional)
 
 By default every GitHub write goes through the shared `GITHUB_TOKEN`. Set
 `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` + `TOKEN_ENC_KEY` and user-initiated
 GitHub writes (issues, comments, Kanban moves, insight PRs) are made **as the caller's own
-GitHub account** instead. One-time setup: register a GitHub **OAuth App** (org-owned preferred)
-with callback URL `<app-origin>/api/github/callback`, scope `repo`. Each user connects once —
-either from the avatar menu ("Connect GitHub") or via the prompt that appears the first time
-a write is attempted (`409 github_not_linked`). Tokens are validated against the target repo
+GitHub account** instead. One-time setup: register either a classic **OAuth App** (callback
+`<app-origin>/api/github/callback`, scope `repo`) or a **GitHub App** with user authorization
+(same callback; disable "Expire user authorization tokens" — no refresh rotation is built;
+permissions are then scoped to the app's installation, which orgs tend to prefer). Each user
+connects once — either from the avatar menu ("Connect GitHub") or via the prompt that appears
+the first time a write is attempted (`409 github_not_linked`). Tokens are validated against the target repo
 before being stored AES-256-GCM-encrypted; a revoked token auto-unlinks on the next write
 (`409 github_reauth_required`). Reads and background sync keep using the service token.
 Requires Google login; the server refuses to boot on partial config.
@@ -141,7 +153,8 @@ Route groups (`api/src/routes/`):
 |---|---|
 | Issues | list / patch (two-way) / create, `/roadmap` PATCH (app-only planning fields) |
 | Comments | list / create / patch / delete (two-way) |
-| Meta & config | counts, rate limit, current user; `workspace_config` GET/PATCH |
+| Meta & config | counts, rate limit, current user; `workspace_config` GET/PATCH (pod base filter — admin) |
+| Workspaces (pods) | list, switch active (`rm_workspace` cookie), create / rename / archive (admin) |
 | Roadmap surfaces | flow state, schedule health (live + history + backfill), Projects v2 (Kanban), PRs |
 | Progress | morning brief (snapshot + changes since last-seen) |
 | AI | issue summary, progress read, account read, insight extraction (all regenerable) |
