@@ -48,6 +48,42 @@
   --shadow-drawer: -16px 0 60px rgba(20, 18, 12, 0.08), -2px 0 8px rgba(20, 18, 12, 0.04);
 }
 
+/* ── Dark theme — token override (mirrors :root) ────────────────────────────
+   Seeded from the Dark Reader palette but curated: bg/canvas/surface kept as a
+   real 3-step elevation (the dump collapsed them), ink ramp un-inverted, state
+   colours brightened to their text variants. Non-colour tokens are unchanged. */
+html[data-theme="dark"] {
+  --bg:          rgb(28, 26, 18);
+  --canvas:      rgb(34, 31, 21);
+  --surface:     rgb(31, 33, 34);
+  --surface-2:   rgb(45, 41, 26);
+  --hover:       rgb(42, 40, 25);
+
+  --border:      rgb(56, 61, 63);
+  --border-2:    rgb(61, 66, 69);
+  --border-3:    rgb(73, 80, 83);
+
+  --ink:         rgb(217, 214, 209);
+  --ink-2:       rgb(188, 182, 173);
+  --ink-3:       rgb(156, 148, 135);
+  --ink-4:       rgb(138, 131, 120);
+  --ink-5:       rgb(86, 82, 73);
+
+  --accent:      rgb(255, 100, 60);
+  --accent-soft: rgb(64, 18, 0);
+
+  --r:    rgb(225, 110, 96);  --r-bg: rgb(55, 15, 9);
+  --e:    rgb(235, 181, 96);  --e-bg: rgb(67, 50, 8);
+  --n:    rgb(140, 222, 223); --n-bg: rgb(26, 53, 52);
+
+  --green:  rgb(120, 210, 152);
+  --purple: rgb(128, 97, 187);
+
+  --shadow-1: 0 1px 2px rgba(16, 14, 10, 0.5), 0 1px 1px rgba(16, 14, 10, 0.4);
+  --shadow-2: 0 4px 12px rgba(16, 14, 10, 0.6), 0 2px 4px rgba(16, 14, 10, 0.45);
+  --shadow-drawer: -16px 0 60px rgba(16, 14, 10, 0.7), -2px 0 8px rgba(16, 14, 10, 0.5);
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
@@ -3781,3 +3817,62 @@ button.insight-account-chip:hover {
   color: var(--ink);
 }
 .users-error { font-size: 12px; color: var(--red, #c83c3c); }
+
+/* Theme toggle — square-ish icon button (sun/moon glyph). */
+.btn.icon-only { padding: 6px 9px; line-height: 1; }
+
+/* ── Dark theme — escaped hardcoded overrides ───────────────────────────────
+   Colours below are NOT behind a token, so the [data-theme="dark"] root block
+   above can't reach them. Each gets an explicit override; grouped by pattern.
+   Selectors are single-class + the attribute prefix, and sit last in the file,
+   so both specificity and source order land them ahead of the light rules. */
+
+/* Page backdrop gradient — same geometry, brightened stops at higher alpha. */
+html[data-theme="dark"] body::before {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 100, 60, 0.06), transparent 50%),
+    radial-gradient(circle at 0% 100%, rgba(140, 222, 223, 0.05), transparent 50%);
+}
+
+/* Avatars — same eight values appear at .av:nth-child and the named .av-*. */
+html[data-theme="dark"] .avatars .av:nth-child(1),
+html[data-theme="dark"] .av-anh  { background: rgb(74, 45, 30); color: rgb(240, 190, 165); }
+html[data-theme="dark"] .avatars .av:nth-child(2),
+html[data-theme="dark"] .av-uyen { background: rgb(50, 64, 35); color: rgb(200, 222, 170); }
+html[data-theme="dark"] .avatars .av:nth-child(3),
+html[data-theme="dark"] .av-khoa { background: rgb(35, 52, 80); color: rgb(170, 200, 240); }
+html[data-theme="dark"] .avatars .av:nth-child(4),
+html[data-theme="dark"] .av-minh { background: rgb(58, 35, 74); color: rgb(210, 175, 235); }
+
+/* Open / closed state badges — light uses a 10% tint that muddies on dark. */
+html[data-theme="dark"] .d-head .d-state,
+html[data-theme="dark"] .list-state { background: rgb(26, 53, 38); }
+html[data-theme="dark"] .d-head .d-state.closed,
+html[data-theme="dark"] .list-state.closed { background: rgb(40, 28, 60); }
+
+/* Green status-dot rings. */
+html[data-theme="dark"] .meta .dot { box-shadow: 0 0 0 3px rgba(120, 210, 152, 0.18); }
+html[data-theme="dark"] .d-body .sync .dot { box-shadow: 0 0 0 2px rgba(120, 210, 152, 0.22); }
+
+/* Scrims + the warm-black inline shadows need a darker base on dark surfaces. */
+html[data-theme="dark"] .drawer-scrim { background: rgba(0, 0, 0, 0.55); }
+html[data-theme="dark"] .modal-scrim  { background: rgba(0, 0, 0, 0.6); }
+html[data-theme="dark"] .board-split .board-pinned { box-shadow: -8px 0 16px -8px rgba(0, 0, 0, 0.5); }
+html[data-theme="dark"] .card-summary-tooltip {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Pure-black button hovers read as holes on dark — lift instead. */
+html[data-theme="dark"] .btn.primary:hover,
+html[data-theme="dark"] .d-foot button:hover { background: var(--accent); filter: brightness(1.12); }
+
+/* Kanban error border. */
+html[data-theme="dark"] .kb-error { border-color: rgba(225, 110, 96, 0.3); }
+
+/* Duplicate-detection amber UI — invert onto the dark --e family. */
+html[data-theme="dark"] .insight-dup-badge {
+  color: var(--e); background: rgb(67, 50, 8); border-color: rgba(235, 181, 96, 0.4);
+}
+html[data-theme="dark"] .insight-dup-banner {
+  color: var(--e); background: rgb(50, 38, 8); border-color: rgba(235, 181, 96, 0.3);
+}

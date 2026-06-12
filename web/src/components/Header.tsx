@@ -35,9 +35,11 @@ interface HeaderProps {
   filterActive: boolean;
   onSync: () => void;
   syncing: boolean;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
 }
 
-export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiChange, onOpenFilter, onNewIssue, filterActive, onSync, syncing }: HeaderProps): JSX.Element {
+export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiChange, onOpenFilter, onNewIssue, filterActive, onSync, syncing, theme, onToggleTheme }: HeaderProps): JSX.Element {
   const filterBtnRef = useRef<HTMLButtonElement | null>(null);
   const open = meta ? String(meta.openCount) : "—";
   const closed = meta ? String(meta.closedCount) : "—";
@@ -88,6 +90,14 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         >
           <span>Filter</span>
           <span className="kbd">F</span>
+        </button>
+        <button
+          className="btn icon-only"
+          onClick={onToggleTheme}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          aria-label="Toggle theme"
+        >
+          <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
         </button>
         {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />}
         {isAdmin && <DataSettings />}

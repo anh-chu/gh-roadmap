@@ -19,6 +19,7 @@ import { useIssues } from "./hooks/useIssues";
 import { useMeta } from "./hooks/useMeta";
 import { useCatalog } from "./hooks/useCatalog";
 import { useConfig } from "./hooks/useConfig";
+import { useTheme, type Theme } from "./hooks/useTheme";
 import { usePulls } from "./hooks/usePulls";
 import { useFlow } from "./hooks/useFlow";
 import { useProject, useProjects } from "./hooks/useProjects";
@@ -44,7 +45,7 @@ function tabFromHash(): TabKey {
   return TABS.includes(h) ? h : "roadmap";
 }
 
-export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
+export function App({ authUser, initialTheme }: { authUser: AuthUser | null; initialTheme: Theme }): JSX.Element {
   // When auth is disabled, authUser is null and the user is treated as an admin.
   const isAdmin = authUser?.isAdmin ?? true;
   const { node: toastNode, controller: toast } = useToast();
@@ -52,6 +53,7 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
   const issuesApi = useIssues(onError);
   const { meta, refresh: refreshMeta } = useMeta();
   const { config, updateConfig } = useConfig(onError);
+  const { theme, toggle: toggleTheme } = useTheme(initialTheme);
   const pulls = usePulls();
   const { flow } = useFlow();
   const insightCounts = useIssueInsightCounts();
@@ -307,6 +309,8 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
         filterActive={isRichFilterActive(richFilter)}
         onSync={handleSync}
         syncing={syncing}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
       {issuesApi.errorMessage && (
         <div

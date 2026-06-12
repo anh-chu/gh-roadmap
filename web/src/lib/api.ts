@@ -103,6 +103,16 @@ export async function logout(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" });
 }
 
+// Persist the caller's theme preference (per-user, server-side).
+export async function patchTheme(theme: "light" | "dark"): Promise<void> {
+  const r = await fetch("/api/auth/theme", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ theme }),
+  });
+  await jsonOrThrow<{ ok: boolean }>(r);
+}
+
 // Disconnect the caller's linked GitHub account (write-identity layer 3).
 export async function unlinkGithub(): Promise<void> {
   const r = await fetch("/api/github/unlink", { method: "POST" });

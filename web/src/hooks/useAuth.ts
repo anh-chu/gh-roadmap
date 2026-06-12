@@ -24,7 +24,7 @@ export function useAuth(): UseAuth {
         setMe(m);
       } catch {
         // Treat a failed /me as "auth disabled" so a transient blip never locks the app out.
-        if (!cancelled) setMe({ authEnabled: false, user: null, githubOauthEnabled: false, githubLinked: false, githubLogin: null });
+        if (!cancelled) setMe({ authEnabled: false, user: null, githubOauthEnabled: false, githubLinked: false, githubLogin: null, theme: "light" });
       } finally {
         if (!cancelled) setLoading(false);
       }

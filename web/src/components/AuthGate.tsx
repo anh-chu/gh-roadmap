@@ -21,5 +21,5 @@ export function AuthGate(): JSX.Element {
   // Set before App mounts so every component's canEdit() reads the right role.
   // No-auth localhost mode (user null) = local admin, role system dormant.
   setSessionRole(me.user?.role ?? "admin");
-  return <App authUser={me.user} />;
+  return <App authUser={me.user} initialTheme={me.theme} />;
 }

@@ -133,6 +133,8 @@ export interface AuthMe {
   githubLinked: boolean;
   // GitHub login of the linked account, null when unlinked.
   githubLogin: string | null;
+  // Per-user UI theme. Defaults to "light" (no stored preference).
+  theme: "light" | "dark";
 }
 
 export interface MetaResponse {

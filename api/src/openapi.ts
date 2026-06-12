@@ -113,6 +113,18 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           responses: ok({ $ref: "#/components/schemas/AuthMe" }),
         }),
       },
+      "/api/auth/theme": {
+        patch: op("auth", "updateTheme", "Persist the caller's UI theme preference (per-user). Not admin-gated.", {
+          requestBody: body({
+            type: "object",
+            required: ["theme"],
+            additionalProperties: false,
+            properties: { theme: { type: "string", enum: ["light", "dark"] } },
+          }),
+          responses: ok({ type: "object", properties: { ok: { type: "boolean" } } }),
+          "x-side-effects": true,
+        }),
+      },
       "/api/auth/login": {
         get: op("auth", "authLogin", "Redirect to Google consent. No-op redirect to / when auth is disabled.", {
           responses: { "302": { description: "Redirect to Google OAuth (or / when disabled)" } },
@@ -742,8 +754,9 @@ const components: Record<string, JsonSchema> = {
       githubOauthEnabled: { type: "boolean", description: "Per-user GitHub OAuth configured server-side (GITHUB_OAUTH_CLIENT_ID/SECRET set)." },
       githubLinked: { type: "boolean", description: "Signed-in user has a linked GitHub account. Passive status only — never gates UI controls." },
       githubLogin: { type: ["string", "null"], description: "GitHub login of the linked account, null when unlinked." },
+      theme: { type: "string", enum: ["light", "dark"], description: "Per-user UI theme. Defaults to light when no preference is stored." },
     },
-    required: ["authEnabled", "user", "githubOauthEnabled", "githubLinked", "githubLogin"],
+    required: ["authEnabled", "user", "githubOauthEnabled", "githubLinked", "githubLogin", "theme"],
   },
   AppUser: {
     type: "object",
