@@ -27,8 +27,16 @@ import {
   DEFAULT_RICH_FILTER,
   FilterPopover,
   isRichFilterActive,
+  parseLabelQuery,
   type RichFilter,
 } from "./components/FilterPopover";
+import type { FlowState } from "../../shared/types";
+
+const FLOW_WITH_PR: ReadonlySet<FlowState> = new Set<FlowState>([
+  "shipping",
+  "in-review",
+  "in-code",
+]);
 
 const TABS: readonly TabKey[] = ["roadmap", "list", "kanban", "insights", "accounts", "progress"];
 function tabFromHash(): TabKey {
@@ -101,6 +109,8 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
 
   const currentUser = meta?.currentUser ?? null;
 
+  const parsedQuery = useMemo(() => parseLabelQuery(richFilter.labelQuery), [richFilter.labelQuery]);
+
   const passFilter = useCallback(
     (i: Issue): boolean => {
       if (search) {
@@ -110,15 +120,46 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
       if (filter === "mine") {
         if (!currentUser || i.assignee !== currentUser) return false;
       }
+
+      // Structured selections (popover) ANDed with token shortcuts (parsed from the box).
+      const planned = !!(i.month || i.week);
+      const planningOf = (p: typeof richFilter.planning): boolean => {
+        if (p === "all") return true;
+        if (p === "todo") return i.isTodo;
+        if (p === "planned") return planned;
+        return !planned && !i.isTodo; // backlog
+      };
+      const flowState = flow.get(i.num)?.state ?? null;
+
+      // Structured fields
       if (richFilter.assignees.length > 0 && !richFilter.assignees.includes(i.assignee)) return false;
       if (richFilter.state !== "all" && i.state !== richFilter.state) return false;
-      if (richFilter.labelQuery.trim()) {
-        const q = richFilter.labelQuery.toLowerCase();
-        if (!i.labels.some((l) => l.toLowerCase().includes(q))) return false;
+      if (!planningOf(richFilter.planning)) return false;
+      if (richFilter.flowStates.length > 0 && (!flowState || !richFilter.flowStates.includes(flowState)))
+        return false;
+      if (richFilter.milestones.length > 0 && (!i.milestone || !richFilter.milestones.includes(i.milestone)))
+        return false;
+      if (richFilter.hasPR && (!flowState || !FLOW_WITH_PR.has(flowState))) return false;
+      if (richFilter.hasInsights && !((insightCounts[i.num] ?? 0) > 0)) return false;
+
+      // Token shortcuts
+      const q = parsedQuery;
+      if (q.assignees.length > 0 && !q.assignees.includes(i.assignee)) return false;
+      if (q.state && i.state !== q.state) return false;
+      if (q.planning && !planningOf(q.planning)) return false;
+      if (q.flowStates.length > 0 && (!flowState || !q.flowStates.includes(flowState))) return false;
+      if (q.milestones.length > 0 && (!i.milestone || !q.milestones.includes(i.milestone))) return false;
+      if (q.hasPR && (!flowState || !FLOW_WITH_PR.has(flowState))) return false;
+      if (q.hasInsights && !((insightCounts[i.num] ?? 0) > 0)) return false;
+      for (const l of q.labelsInclude) if (!i.labels.includes(l)) return false;
+      for (const l of q.labelsExclude) if (i.labels.includes(l)) return false;
+      if (q.text.trim()) {
+        const t = q.text.toLowerCase();
+        if (!i.labels.some((l) => l.toLowerCase().includes(t))) return false;
       }
       return true;
     },
-    [filter, search, richFilter, currentUser],
+    [filter, search, richFilter, parsedQuery, currentUser, flow, insightCounts],
   );
 
   const issues = issuesApi.issues;
@@ -376,6 +417,7 @@ export function App({ authUser }: { authUser: AuthUser | null }): JSX.Element {
       <FilterPopover
         anchor={filterAnchor}
         knownAssignees={knownAssignees}
+        knownMilestones={knownMilestones}
         value={richFilter}
         onChange={setRichFilter}
         onClose={() => setFilterAnchor(null)}
