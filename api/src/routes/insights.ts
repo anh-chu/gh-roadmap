@@ -10,7 +10,7 @@ import {
   type CapturedInsight,
   type MergeInsightSource,
 } from "../ai.js";
-import { closeInsightPr, deleteInsightPr, mergeInsightPr, mergeInsightsPr, publishInsightPr } from "../github.js";
+import { closeInsightPr, deleteInsightPr, mergeInsightPr, mergeInsightsPr, publishInsightPr, isGithubConfigured } from "../github.js";
 import { runGithubWrite } from "../githubWriteIdentity.js";
 import { detectDuplicate, type DupCandidate } from "../dedup.js";
 import type {
@@ -761,8 +761,8 @@ function registerDraftRoutes(app: FastifyInstance): void {
         badRequest(reply, "title, type, date, body_draft all required to publish");
         return;
       }
-      if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_OWNER || !process.env.GITHUB_REPO) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+      if (!ghConfigured()) {
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
 
@@ -859,8 +859,8 @@ function registerDraftRoutes(app: FastifyInstance): void {
         reply.code(409).send({ error: "draft has no PR number" });
         return;
       }
-      if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_OWNER || !process.env.GITHUB_REPO) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+      if (!ghConfigured()) {
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
 
@@ -917,8 +917,8 @@ function registerDraftRoutes(app: FastifyInstance): void {
         reply.code(409).send({ error: "draft has no PR number" });
         return;
       }
-      if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_OWNER || !process.env.GITHUB_REPO) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+      if (!ghConfigured()) {
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
 
@@ -1127,7 +1127,7 @@ function openOpForPath(path: string): boolean {
 }
 
 function ghConfigured(): boolean {
-  return !!(process.env.GITHUB_TOKEN && process.env.GITHUB_OWNER && process.env.GITHUB_REPO);
+  return isGithubConfigured();
 }
 
 interface MergeEdited {
@@ -1345,7 +1345,7 @@ function registerOpRoutes(app: FastifyInstance): void {
         return;
       }
       if (!ghConfigured()) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
       if (openOpForPath(ins.path)) {
@@ -1472,7 +1472,7 @@ function registerOpRoutes(app: FastifyInstance): void {
         return;
       }
       if (!ghConfigured()) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
       const b = req.body ?? {};
@@ -1592,7 +1592,7 @@ function registerOpRoutes(app: FastifyInstance): void {
         return;
       }
       if (!ghConfigured()) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
       try {
@@ -1645,7 +1645,7 @@ function registerOpRoutes(app: FastifyInstance): void {
         return;
       }
       if (!ghConfigured()) {
-        reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+        reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
         return;
       }
       try {

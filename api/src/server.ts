@@ -8,7 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { initDb } from "./db.js";
-import { initGithub, getRateLimitStatus } from "./github.js";
+import { initGithub, getRateLimitStatus, isGithubConfigured } from "./github.js";
 import { reconcile, runDailySnapshot } from "./sync.js";
 import { backfillAllHealthSnapshots } from "./healthBackfill.js";
 import { activeWorkspaceId } from "./workspace.js";
@@ -48,6 +48,9 @@ const DB_PATH = process.env.DB_PATH ?? "./data/roadmap.db";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 const GITHUB_OWNER = process.env.GITHUB_OWNER ?? "";
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "";
+const GITHUB_APP_ID = process.env.GITHUB_APP_ID ?? "";
+const GITHUB_APP_PRIVATE_KEY = process.env.GITHUB_APP_PRIVATE_KEY ?? "";
+const GITHUB_APP_INSTALLATION_ID = process.env.GITHUB_APP_INSTALLATION_ID ?? "";
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 
 const NIGHTLY_MS = 24 * 60 * 60 * 1000;
@@ -56,13 +59,30 @@ const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 async function main(): Promise<void> {
   const app = Fastify({ logger: true });
 
-  if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-    app.log.warn("GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO not set — sync disabled");
+  if (!isGithubConfigured()) {
+    app.log.warn("GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY/INSTALLATION_ID; sync disabled");
   }
 
   initDb(DB_PATH);
-  if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
-    initGithub(GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO);
+  if (isGithubConfigured()) {
+    await initGithub({
+      owner: GITHUB_OWNER,
+      repo: GITHUB_REPO,
+      token: GITHUB_TOKEN || undefined,
+      appId: GITHUB_APP_ID || undefined,
+      privateKey: GITHUB_APP_PRIVATE_KEY || undefined,
+      installationId: GITHUB_APP_INSTALLATION_ID || undefined,
+    });
+    // Name the repos in scope so the operator knows where a GitHub App must be installed
+    // (issues repo + insights repo if different) and which identity writes use.
+    app.log.info(
+      {
+        issuesRepo: `${GITHUB_OWNER}/${GITHUB_REPO}`,
+        insightsRepo: process.env.INSIGHTS_GITHUB_REPO || `${GITHUB_OWNER}/${GITHUB_REPO}`,
+        auth: GITHUB_APP_ID ? "github-app (bot identity)" : "token",
+      },
+      "GitHub configured",
+    );
   }
   logResolvedModels((msg, meta) => app.log.info(meta ?? {}, msg));
 
@@ -182,7 +202,7 @@ async function main(): Promise<void> {
   const chosenPort = await listenWithRetry(app, PORT, PORT_TRIES);
   writePortFile(chosenPort, app);
 
-  if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
+  if (isGithubConfigured()) {
     reconcile()
       .then((r) => {
         app.log.info({ ...r }, "boot reconcile done");

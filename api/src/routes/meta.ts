@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { db, getKv, setKv } from "../db.js";
-import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels, listRepoMilestones } from "../github.js";
+import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels, listRepoMilestones, isAppAuth } from "../github.js";
 import type { BucketingField, BucketsInfo } from "../../../shared/types.js";
 import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterFilter.js";
 import { projectFilter } from "./projects.js";
@@ -146,13 +146,13 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
     const lastMonth = ymUtc(lastMonthDate);
 
     // Cache the authenticated login in kv so we don't hit GitHub on every /api/meta poll.
+    // Under App auth getAuthenticatedLogin() returns a cached bot login (no network), so we
+    // also refresh each poll — this overwrites any stale PAT-era login left in kv.
     let currentUser = getKv("currentUser");
-    if (currentUser === null) {
+    if (currentUser === null || isAppAuth()) {
       const login = await getAuthenticatedLogin();
-      if (login) {
-        setKv("currentUser", login);
-        currentUser = login;
-      }
+      if (login && login !== currentUser) setKv("currentUser", login);
+      if (login) currentUser = login;
     }
 
     return {

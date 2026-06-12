@@ -5,8 +5,8 @@
 // is treated as a local admin. Set both to require "Sign in with Google" for the whole app.
 //
 // This layer only authenticates the *human* (who may open the app). It does NOT change the
-// GitHub *write* identity — writes still go through the env service token (GITHUB_TOKEN).
-// Binding each user to their own GitHub credential is a later phase.
+// GitHub *write* identity — writes go through the shared service identity (serviceOctokit():
+// a GitHub App installation token or GITHUB_TOKEN) unless per-user GitHub OAuth is enabled.
 import crypto from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Role } from "../../shared/types.js";

@@ -1,4 +1,4 @@
-import { Octokit } from "octokit";
+import { App, Octokit } from "octokit";
 
 export type GhIssue = {
   number: number;
@@ -35,14 +35,44 @@ let _octo: Octokit | null = null;
 let _owner = "";
 let _repo = "";
 let _rate: RateLimit = { remaining: 5000, limit: 5000, reset: 0 };
+// App-auth mode + the resolved bot login ("<app-slug>[bot]"). Under App auth GET /user
+// 403s, so getAuthenticatedLogin() returns this instead of calling it.
+let _appAuth = false;
+let _serviceLogin: string | null = null;
 
-export function initGithub(token: string, owner: string, repo: string): void {
-  _octo = new Octokit({ auth: token });
-  _owner = owner;
-  _repo = repo;
+export interface GithubInit {
+  owner: string;
+  repo: string;
+  token?: string;
+  appId?: string;
+  privateKey?: string;
+  installationId?: string;
+}
 
-  // Capture rate-limit headers off every response.
-  _octo.hook.after("request", (response) => {
+// True when GITHUB_OWNER/REPO are set and either a PAT (GITHUB_TOKEN) or a full
+// GitHub App credential triple is present. Single source of truth for "is GitHub
+// usable" — server boot and every route guard call this.
+export function isGithubConfigured(): boolean {
+  if (!process.env.GITHUB_OWNER || !process.env.GITHUB_REPO) return false;
+  const hasPat = !!process.env.GITHUB_TOKEN;
+  const hasApp = !!(
+    process.env.GITHUB_APP_ID &&
+    process.env.GITHUB_APP_PRIVATE_KEY &&
+    process.env.GITHUB_APP_INSTALLATION_ID
+  );
+  return hasPat || hasApp;
+}
+
+// Accept the private key as raw PEM (real newlines), PEM with literal "\n"
+// escapes (single-line .env), or base64 of the PEM (systemd-friendly).
+function normalizePrivateKey(raw: string): string {
+  const v = raw.trim();
+  if (v.includes("-----BEGIN")) return v.replace(/\\n/g, "\n");
+  return Buffer.from(v, "base64").toString("utf8");
+}
+
+function attachRateLimitHook(o: Octokit): void {
+  o.hook.after("request", (response) => {
     const h = response.headers as Record<string, string | undefined>;
     const rem = h["x-ratelimit-remaining"];
     const lim = h["x-ratelimit-limit"];
@@ -51,6 +81,46 @@ export function initGithub(token: string, owner: string, repo: string): void {
     if (lim) _rate.limit = Number(lim);
     if (rst) _rate.reset = Number(rst);
   });
+}
+
+// GitHub App credentials take precedence over a PAT: the installation Octokit mints
+// short-lived (~1h) tokens and auto-renews them, so the shared service identity acts
+// as the app's bot rather than a person. serviceOctokit() returns this client. Falls
+// back to a static PAT token when App creds are absent.
+export async function initGithub(opts: GithubInit): Promise<void> {
+  _owner = opts.owner;
+  _repo = opts.repo;
+
+  if (opts.appId && opts.privateKey && opts.installationId) {
+    const app = new App({
+      appId: Number(opts.appId),
+      privateKey: normalizePrivateKey(opts.privateKey),
+    });
+    _octo = await app.getInstallationOctokit(Number(opts.installationId));
+    _appAuth = true;
+    // Resolve the bot login once (the JWT-authed app client can read GET /app; the
+    // installation token cannot). Best-effort — on failure the bot name just stays unset.
+    _serviceLogin = null;
+    try {
+      const { data } = await app.octokit.request("GET /app");
+      if (data?.slug) _serviceLogin = `${data.slug}[bot]`;
+    } catch {
+      /* leave _serviceLogin null */
+    }
+  } else if (opts.token) {
+    _octo = new Octokit({ auth: opts.token });
+    _appAuth = false;
+    _serviceLogin = null;
+  } else {
+    throw new Error("initGithub: provide a GITHUB_TOKEN or GitHub App credentials");
+  }
+
+  attachRateLimitHook(_octo);
+}
+
+// True when the service identity is a GitHub App installation (writes appear as the bot).
+export function isAppAuth(): boolean {
+  return _appAuth;
 }
 
 function octo(): Octokit {
@@ -82,6 +152,9 @@ export function getRepoSlug(): string | null {
 
 export async function getAuthenticatedLogin(): Promise<string | null> {
   if (!_octo) return null;
+  // Installation tokens 403 on GET /user — return the resolved bot login instead (and
+  // skip the doomed request, which would otherwise fire on every /api/meta poll).
+  if (_appAuth) return _serviceLogin;
   try {
     const { data } = await _octo.rest.users.getAuthenticated();
     return data.login ?? null;

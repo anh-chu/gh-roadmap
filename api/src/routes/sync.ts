@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { getKv } from "../db.js";
 import { reconcile } from "../sync.js";
 import { reconcileInsights } from "../insights.js";
+import { isGithubConfigured } from "../github.js";
 import type { SyncResult } from "../../../shared/types.js";
 
 // Manual full sync — same work the boot/nightly loop does, on demand from the
@@ -10,8 +11,8 @@ let _syncing = false;
 
 export async function syncRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/sync", async (req, reply): Promise<SyncResult | undefined> => {
-    if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_OWNER || !process.env.GITHUB_REPO) {
-      reply.code(503).send({ error: "GitHub not configured — set GITHUB_TOKEN/OWNER/REPO" });
+    if (!isGithubConfigured()) {
+      reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
       return;
     }
     if (_syncing) {

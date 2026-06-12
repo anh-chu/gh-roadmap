@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { load as yamlLoad } from "js-yaml";
 import { db } from "./db.js";
-import { listInsightFiles, fetchInsightBlob, fetchInsightPrState } from "./github.js";
+import { listInsightFiles, fetchInsightBlob, fetchInsightPrState, isGithubConfigured } from "./github.js";
 
 export interface InsightSyncResult {
   scanned: number;
@@ -14,7 +14,7 @@ export interface InsightSyncResult {
 // Insights are mirrored from the canonical GitHub repo via the API (same model as
 // issues) — no local checkout. Enabled iff GitHub is configured.
 export function isInsightsEnabled(): boolean {
-  return !!(process.env.GITHUB_TOKEN && process.env.GITHUB_OWNER && process.env.GITHUB_REPO);
+  return isGithubConfigured();
 }
 
 interface Frontmatter {
