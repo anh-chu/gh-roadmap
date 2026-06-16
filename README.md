@@ -33,6 +33,9 @@ Cross-cutting:
   recalibrated at-risk with daily snapshots.
 - **AI surfaces** — issue summary, Progress read, insight extraction, account read — all regenerable,
   via any OpenAI-compatible endpoint, with per-task model overrides set in the UI.
+- **AI cost controls** — per-workspace guardrails set in the header "AI" popover (admin only): a
+  `max_tokens` cap per request, a requests-per-minute rate limit, and a daily token budget that
+  hard-stops AI (503) until UTC midnight. `0` = unlimited. Usage meter on `/api/meta`.
 - **Customer-signal linking** — insights ↔ issues ↔ accounts, two-way, bumping at-risk severity.
 - **Capture API** — unauthenticated localhost endpoint (`POST /api/insights/capture`) for agents/curl
   to drop raw signal into the inbox; the Insights header shows a copy-for-agent brief.
@@ -63,18 +66,20 @@ pnpm typecheck              # tsc --strict over both api and web — the build g
 
 All config is env vars (see `.env.example` for the annotated list). Highlights:
 
-| Var | Purpose |
-|---|---|
-| `GITHUB_TOKEN` / `GITHUB_OWNER` / `GITHUB_REPO` | Issues repo + auth (PAT or GitHub App installation token). Required. |
-| `GITHUB_PROJECT_NUMBER` | Pin the Kanban tab to one Projects v2 board. Optional. |
-| `GITHUB_WEBHOOK_SECRET` | HMAC secret for the inbound webhook. Optional. |
-| `INSIGHTS_GITHUB_REPO` | Point insights sync at a different repo than the issues repo (`owner/repo`). Optional. |
-| `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | OpenAI-compatible endpoint for AI surfaces. Unset → AI routes 503 and the UI hides them. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Set both to require Google sign-in. Leave blank for single-user localhost mode. |
-| `ALLOWED_EMAIL_DOMAIN` / `ADMIN_EMAILS` / `SESSION_SECRET` | Domain whitelist, admin gating, cookie signing. Optional. |
-| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Set both for per-user GitHub write identity (writes act as the caller's GitHub account). Requires Google login. Optional. |
-| `TOKEN_ENC_KEY` | 32-byte key (hex/base64) encrypting stored user GitHub tokens at rest. Required when GitHub OAuth is set. |
-| `DB_PATH` | SQLite file location. Defaults to `./data/roadmap.db`. |
+| Var                                                                       | Purpose                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_OWNER` / `GITHUB_REPO`                                            | Issues repo. Required.                                                                                                                                                                          |
+| `GITHUB_TOKEN`                                                            | Service-identity PAT (Option A). Set this **or** the GitHub App trio below.                                                                                                                     |
+| `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / `GITHUB_APP_PRIVATE_KEY` | Service-identity GitHub App (Option B). Take precedence over `GITHUB_TOKEN`; the installation token is minted in-app and auto-renews. Private key accepts raw PEM, literal-`\n` PEM, or base64. |
+| `GITHUB_PROJECT_NUMBER`                                                   | Pin the Kanban tab to one Projects v2 board. Optional.                                                                                                                                          |
+| `GITHUB_WEBHOOK_SECRET`                                                   | HMAC secret for the inbound webhook. Optional.                                                                                                                                                  |
+| `INSIGHTS_GITHUB_REPO`                                                    | Point insights sync at a different repo than the issues repo (`owner/repo`). Optional.                                                                                                          |
+| `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`                                 | OpenAI-compatible endpoint for AI surfaces. Unset → AI routes 503 and the UI hides them.                                                                                                        |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                               | Set both to require Google sign-in. Leave blank for single-user localhost mode.                                                                                                                 |
+| `ALLOWED_EMAIL_DOMAIN` / `ADMIN_EMAILS` / `SESSION_SECRET`                | Domain whitelist, admin gating, cookie signing. Optional.                                                                                                                                       |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`                   | Set both for per-user GitHub write identity (writes act as the caller's GitHub account). Requires Google login. Optional.                                                                       |
+| `TOKEN_ENC_KEY`                                                           | 32-byte key (hex/base64) encrypting stored user GitHub tokens at rest. Required when GitHub OAuth is set.                                                                                       |
+| `DB_PATH`                                                                 | SQLite file location. Defaults to `./data/roadmap.db`.                                                                                                                                          |
 
 ### Deploying (Docker)
 
@@ -92,6 +97,14 @@ pushes it via OIDC. Operational notes:
   client secret); rotating it logs everyone out.
 - Public HTTPS origin is assumed by the OAuth callbacks — register
   `<app-origin>/api/auth/callback` (Google) and `<app-origin>/api/github/callback` (GitHub).
+
+### Auth & identity at a glance
+
+There are three independent identity layers, each toggled by its own env vars. They stack but none requires the next unless noted:
+
+1. **Service identity** (always on) — the shared GitHub client for reads, sync, and (by default) every write. A PAT (`GITHUB_TOKEN`) or a GitHub App (`GITHUB_APP_ID` + `GITHUB_APP_INSTALLATION_ID` + `GITHUB_APP_PRIVATE_KEY`). See "GitHub auth: App vs PAT" below.
+2. **Login gate** (optional) — Google sign-in. Off by default; gates who can open the app. See "Auth modes" + "Roles" below.
+3. **Per-user GitHub write identity** (optional, needs layer 2) — each user links their own GitHub account in-app so their writes are attributed to them instead of the service identity. The connect flow (avatar menu button + auto-prompt) is built in; it just needs the OAuth env vars. See "Per-user GitHub write identity" below.
 
 ### Auth modes
 
@@ -140,8 +153,11 @@ Requires Google login; the server refuses to boot on partial config.
 
 - **PAT** — fastest. Fine-grained personal access token with `repo` (read/write) + `project` scope
   (`project` powers the Kanban tab). Single-user, 5,000 req/hr.
-- **GitHub App** — recommended for a team. Installation tokens get 15,000 req/hr and aren't tied to
-  a person. Set `GITHUB_TOKEN` to the installation token.
+- **GitHub App** — recommended for a team. Installation tokens get 15,000 req/hr, aren't tied to a
+  person, and writes appear as the app's bot (`app-name[bot]`). Set `GITHUB_APP_ID` +
+  `GITHUB_APP_INSTALLATION_ID` + `GITHUB_APP_PRIVATE_KEY` (they take precedence over `GITHUB_TOKEN`);
+  the app mints + auto-renews the ~1h installation token in-app. Install permissions: Issues, Pull
+  requests, Contents (read/write), Metadata (read), org Projects (read/write, for the Kanban tab).
 
 ### Webhook setup (optional)
 
@@ -166,22 +182,22 @@ The OpenAPI definition is the source of truth — it's kept current with every e
 
 Route groups (`api/src/routes/`):
 
-| Area | Routes |
-|---|---|
-| Issues | list / patch (two-way) / create, `/roadmap` PATCH (app-only planning fields) |
-| Comments | list / create / patch / delete (two-way) |
-| Meta & config | counts, rate limit, current user; `workspace_config` GET/PATCH (pod base filter — admin) |
-| Workspaces (pods) | list, switch active (`rm_workspace` cookie), create / rename / archive (admin) |
-| Roadmap surfaces | flow state, schedule health (live + history + backfill), Projects v2 (Kanban), PRs |
-| Progress | morning brief (snapshot + changes since last-seen) |
-| AI | issue summary, progress read, account read, insight extraction (all regenerable) |
-| Insights | GitHub-API sync, capture, draft lifecycle, publish-PR |
-| Accounts | list / detail / AI read + mini-CRM (create, PATCH profile, JSON + CSV ingest) |
-| PM actions | quick-action endpoints surfaced in the UI |
-| Repo files | read-only viewer for repo files referenced in issues |
-| Data | full-workspace export / import (backup + restore) |
-| Auth | Google OAuth login / callback / logout / session; GitHub link / callback / unlink (write identity) |
-| Webhook | HMAC-verified GitHub receiver |
+| Area              | Routes                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| Issues            | list / patch (two-way) / create, `/roadmap` PATCH (app-only planning fields)                       |
+| Comments          | list / create / patch / delete (two-way)                                                           |
+| Meta & config     | counts, rate limit, current user; `workspace_config` GET/PATCH (pod base filter — admin)           |
+| Workspaces (pods) | list, switch active (`rm_workspace` cookie), create / rename / archive (admin)                     |
+| Roadmap surfaces  | flow state, schedule health (live + history + backfill), Projects v2 (Kanban), PRs                 |
+| Progress          | morning brief (snapshot + changes since last-seen)                                                 |
+| AI                | issue summary, progress read, account read, insight extraction (all regenerable)                   |
+| Insights          | GitHub-API sync, capture, draft lifecycle, publish-PR                                              |
+| Accounts          | list / detail / AI read + mini-CRM (create, PATCH profile, JSON + CSV ingest)                      |
+| PM actions        | quick-action endpoints surfaced in the UI                                                          |
+| Repo files        | read-only viewer for repo files referenced in issues                                               |
+| Data              | full-workspace export / import (backup + restore)                                                  |
+| Auth              | Google OAuth login / callback / logout / session; GitHub link / callback / unlink (write identity) |
+| Webhook           | HMAC-verified GitHub receiver                                                                      |
 
 ## Rate-limit defenses
 
@@ -194,7 +210,6 @@ Route groups (`api/src/routes/`):
 
 See [`CLAUDE.md`](CLAUDE.md) §8 for the full candidate-work list. Notable open items:
 
-- GH App private-key flow (minting installation tokens in-app)
 - Conditional ETag caching layer
 - Source connectors (Slack / gdoc / Jira) feeding the capture API
 - Tests

@@ -21,7 +21,7 @@ This file is the orientation doc. Read it before changing anything. Run instruct
 ## 0. How to work in this repo (for the agent reading this)
 
 - **This is its own repository** (`github.com/anh-chu/gh-roadmap`). It was extracted from the
-  owner's personal wiki monorepo; history starts fresh here. The repo root *is* the app root —
+  owner's personal wiki monorepo; history starts fresh here. The repo root _is_ the app root —
   `api/`, `web/`, and `shared/` sit directly at the root (there is **no** `server/` wrapper
   directory inside the repo, despite older docs/paths that may say `server/...`).
 - **Verify before and after a change:** `pnpm install` then `pnpm typecheck` (runs both
@@ -44,11 +44,11 @@ This file is the orientation doc. Read it before changing anything. Run instruct
 
 ## 1. Who uses this
 
-| User | Need |
-|---|---|
+| User                             | Need                                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
 | Anh (primary, PM of the MHT pod) | Daily standup prep + ad-hoc stakeholder Q&A + spotting risk before it becomes risk |
-| Eng leads + devs in the pod | Read-only or light interaction with their queue |
-| Future: other PMs | Multi-PM-ready from day one — no person-specific assumptions hardcoded |
+| Eng leads + devs in the pod      | Read-only or light interaction with their queue                                    |
+| Future: other PMs                | Multi-PM-ready from day one — no person-specific assumptions hardcoded             |
 
 Pod scope today is locked to the `pod:mht` label via the master-filter feature, switchable per
 `workspace_config`. Nothing about a single PM's identity is baked into code paths.
@@ -62,8 +62,27 @@ backend     Fastify 5 + better-sqlite3 + Octokit + TypeScript (strict)
 frontend    Vite + React + TypeScript (strict), mounted as Fastify middleware — one port
 storage     SQLite file (data/roadmap.db) — no Postgres, no Docker
 deploy      runs anywhere Node 20+ runs; not serverless/Vercel-shaped
-auth        none — localhost dev pattern, single user
+auth        optional, layered — off by default (single-user localhost). See "Auth layers" below.
 ```
+
+#### Auth layers (all optional, independently toggled by env)
+
+1. **Service identity** (`github.ts`) — the shared client for all reads, sync, and (by default) all
+   writes. Either a PAT (`GITHUB_TOKEN`) or a GitHub App installation (`GITHUB_APP_ID` +
+   `GITHUB_APP_INSTALLATION_ID` + `GITHUB_APP_PRIVATE_KEY`). App creds take precedence and mint a
+   self-renewing ~1h installation token in-app; writes then appear as `app-name[bot]`.
+2. **Login gate** (`auth.ts`) — Google OAuth. Off when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`
+   are unset (every request is a local admin). On → every `/api/*` (except `/api/auth/*`) needs a
+   session cookie; roles viewer/editor/admin; `ALLOWED_EMAIL_DOMAIN` whitelist, `ADMIN_EMAILS`
+   immutable bootstrap-admin list.
+3. **Per-user GitHub write identity** (`githubOauth.ts`, `githubWriteIdentity.ts`,
+   `routes/githubAuth.ts`) — GitHub OAuth. On when `GITHUB_OAUTH_CLIENT_ID`/`SECRET` set (requires
+   the login gate + `TOKEN_ENC_KEY`; partial config refuses boot). User-initiated writes then act
+   as the caller's own linked GitHub account; users connect once via "Connect GitHub" (avatar menu
+   or the `409 github_not_linked` prompt). Tokens stored AES-256-GCM-encrypted; revoked →
+   `409 github_reauth_required`. Off → writes fall back to the service identity.
+
+Full run/config matrix is in [`README.md`](README.md); policy doc: `docs/github-oauth-write-identity-plan.md`.
 
 A single `pnpm dev` boots everything. The Vite dev middleware skips `/api` and `/webhook` so the
 Fastify routes win. The port auto-bumps on `EADDRINUSE` and writes `.runtime-port` so sibling tools
@@ -72,8 +91,11 @@ can discover the live port.
 ### GitHub integration
 
 - One issues repo, set via `GITHUB_OWNER` / `GITHUB_REPO` (the owner runs it against
-  `katalon-studio/product`). A GitHub App or a PAT works — needs `repo` + `project` scopes
-  (`project` powers the Kanban tab).
+  `katalon-studio/product`). The service identity is a GitHub App (preferred) or a PAT — needs
+  `repo` + `project` scopes (`project` powers the Kanban tab). See "Auth layers" above.
+- Writes go through the service identity by default; when per-user GitHub OAuth is enabled they go
+  through the caller's own linked account instead. Reads + background sync always use the service
+  identity.
 - Issues are pulled via a bulk GraphQL query (cheaper than a REST loop) and upserted into SQLite.
 - Writes go through Octokit only on explicit user action. **Never write app-only fields back to GitHub.**
 - The webhook handler is wired and HMAC-verified but not relied on — boot-time and nightly
@@ -81,9 +103,9 @@ can discover the live port.
 
 ### Roadmap data model
 
-| Source of truth | Fields |
-|---|---|
-| GitHub (mirrored both ways) | title, body, state, labels, assignee, milestone, comments |
+| Source of truth                    | Fields                                                              |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| GitHub (mirrored both ways)        | title, body, state, labels, assignee, milestone, comments           |
 | App-only (never written to GitHub) | `plannedMonth`, `plannedWeek`, `isTodo`, `roadmapNotes`, `position` |
 
 Cross-area drag (when bucketing = label) writes a `<prefix>:*` label to GitHub — a real GitHub
@@ -92,14 +114,14 @@ mutation. Same-area moves stay app-only. **These app-only fields live only in SQ
 
 ## 3. The dashboard's surfaces
 
-| Tab | Purpose | State |
-|---|---|---|
-| **Roadmap** | Drag issues across time × bucket. TODO + Backlog meta columns. Configurable bucketing (none / label / assignee / milestone), configurable time axis (week / month / quarter), pin-meta-cols toggle | shipped |
-| **List** | Dense sortable table | shipped |
-| **Kanban** | Mirrors one GitHub Project v2 board. Env-pinned via `GITHUB_PROJECT_NUMBER`. No in-app project switcher | shipped |
-| **Insights** | Browse `insights/*.md` from the product repo. Inbox of captured drafts at top. AI-extracted fields + body; publishing opens a PR | shipped |
+| Tab          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                 | State   |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **Roadmap**  | Drag issues across time × bucket. TODO + Backlog meta columns. Configurable bucketing (none / label / assignee / milestone), configurable time axis (week / month / quarter), pin-meta-cols toggle                                                                                                                                                                                                                      | shipped |
+| **List**     | Dense sortable table                                                                                                                                                                                                                                                                                                                                                                                                    | shipped |
+| **Kanban**   | Mirrors one GitHub Project v2 board. Env-pinned via `GITHUB_PROJECT_NUMBER`. No in-app project switcher                                                                                                                                                                                                                                                                                                                 | shipped |
+| **Insights** | Browse `insights/*.md` from the product repo. Inbox of captured drafts at top. AI-extracted fields + body; publishing opens a PR                                                                                                                                                                                                                                                                                        | shipped |
 | **Accounts** | Customer axis. Account index (signal-derived **and** CRM-ingested) → drawer with timeline, cares-about issues (2-hop), an AI "Acme story" read, and an editable **mini-CRM profile** (ARR / renewal / owner / tier / segment / region / industry / website / domain / salesforce_id / notes). Create one account manually, or ingest in bulk via JSON / CSV paste. `source` flag per account: `signal` / `crm` / `both` | shipped |
-| **Progress** | "How are things today" — a single-column spine: Verdict line → AI Read → Needs-you-now (at-risk, primary) → Schedule (headline) + Momentum (secondary) → detail/changes. **Not** a velocity dashboard — PM lens, not EM lens | shipped |
+| **Progress** | "How are things today" — a single-column spine: Verdict line → AI Read → Needs-you-now (at-risk, primary) → Schedule (headline) + Momentum (secondary) → detail/changes. **Not** a velocity dashboard — PM lens, not EM lens                                                                                                                                                                                            | shipped |
 
 ## 4. Core conventions worth knowing
 
@@ -126,7 +148,7 @@ Per-issue state derived from PR + comment + event signals. States: shipping / in
 discussing / stalled / cold / fresh / closed. Hybrid model: deterministic rules pick the state, a
 score ranks within it. The flow pill renders everywhere (Board / List / Kanban / Drawer / Insight body).
 
-The PR mirror runs *full depth* — reviews, check-runs, draft state, head ref, and timeline events
+The PR mirror runs _full depth_ — reviews, check-runs, draft state, head ref, and timeline events
 (labeled / assigned / mentioned / cross-referenced). All upserted on webhook + reconcile.
 
 ### At-risk + Confidence (`api/src/health.ts`)
@@ -178,6 +200,7 @@ drawer; hover shows a portal tooltip with title + assignee/state + AI summary. O
 ### Customer signal (Insights → Issues → Accounts)
 
 Insight files in the product repo's `insights/*.md` carry:
+
 - `accounts:` frontmatter list (optional; legacy files have none)
 - `related_issues:` frontmatter list of issue numbers
 - body `#NNN` mentions, parsed as a fallback when frontmatter is absent
@@ -230,8 +253,8 @@ signals) appear in the index.
   **no local checkout**. `reconcileInsights` calls `github.listInsightFiles` (lists `insights/` with
   per-file git blob shas) and `fetchInsightBlob` (pulls content only for changed shas). Enabled iff
   GitHub is configured; optional `INSIGHTS_GITHUB_REPO` (owner/repo) points insights at a different
-  repo than the issues repo. *(An earlier phase used a local file path + git submodule; it was
-  replaced because it never auto-pulled, so merged insights went stale.)*
+  repo than the issues repo. _(An earlier phase used a local file path + git submodule; it was
+  replaced because it never auto-pulled, so merged insights went stale.)_
 - **Write:** programmatic + manual capture → AI extracts fields and a body draft → an Inbox of drafts
   → Publish opens a PR on the product repo. Drafts live in `insight_drafts` (lifecycle
   pending/published/discarded). Merged PRs appear on the next sync (boot / nightly / manual `Synced`
@@ -239,17 +262,17 @@ signals) appear in the index.
 
 ## 5. The PM design lens (decided — don't re-litigate)
 
-| Topic | Decision |
-|---|---|
-| PM vs EM dashboard | **PM lens always.** No velocity, cycle time, or throughput trends. Focus: "do I need to nudge, rearrange, or unblock anything right now?" |
-| Velocity / cycle time / burndown | Out of scope. Killed early. |
-| R/E/N tagging (Reliable/Expand/New) | Removed entirely — a vestigial deck framework with no team adoption. |
-| Sev 1/2/3 vocabulary | Mapped to critical/high/medium in AI prompts (internally 1=low, opposite of industry, which confuses models). |
-| Card hover summary | Kept after being killed once. Portal-rendered tooltip: 600ms delay, click-out aware, scroll-tracking, viewport-flipping. |
-| Mock data | Banned everywhere. `—` or honest empty states. |
-| Drawer / comment summary length | "Substance only" — describe what the thing *is*, don't narrate scheduling state. |
-| Bold rules | Numeric tokens only. |
-| AI Read tone | Concrete examples + bullets for at-risk, not flat paragraphs. |
+| Topic                               | Decision                                                                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| PM vs EM dashboard                  | **PM lens always.** No velocity, cycle time, or throughput trends. Focus: "do I need to nudge, rearrange, or unblock anything right now?" |
+| Velocity / cycle time / burndown    | Out of scope. Killed early.                                                                                                               |
+| R/E/N tagging (Reliable/Expand/New) | Removed entirely — a vestigial deck framework with no team adoption.                                                                      |
+| Sev 1/2/3 vocabulary                | Mapped to critical/high/medium in AI prompts (internally 1=low, opposite of industry, which confuses models).                             |
+| Card hover summary                  | Kept after being killed once. Portal-rendered tooltip: 600ms delay, click-out aware, scroll-tracking, viewport-flipping.                  |
+| Mock data                           | Banned everywhere. `—` or honest empty states.                                                                                            |
+| Drawer / comment summary length     | "Substance only" — describe what the thing _is_, don't narrate scheduling state.                                                          |
+| Bold rules                          | Numeric tokens only.                                                                                                                      |
+| AI Read tone                        | Concrete examples + bullets for at-risk, not flat paragraphs.                                                                             |
 
 ## 6. Reframes that mattered
 
@@ -289,18 +312,19 @@ Insights Inbox header shows the curl command and a "Copy all for agent" brief.
 
 ## 8. Not done yet (candidate next work)
 
-| Deferred | Why |
-|---|---|
-| Source connectors (Slack / gdoc / Jira) | The capture API is the foundation; per-source pipes feed it later. |
-| In-app insight authoring | Currently capture-only; authoring in-app would bypass the AI extraction loop. |
-| Account alias merge | "Acme" vs "Acme Corp" split into two accounts. Ship the split visibly; manual merge later, no auto-guess. |
-| At-risk structured account chips | The at-risk AI Read names accounts in prose; render them as structured chips instead. |
-| Account-scoped master filter | The accounts index is unscoped (master filter is issue-label based). |
-| Theme (pre-issue feature holder) | Signals link straight to issues; themes are ad hoc, premature to model. |
-| AI-suggested issue matches for unlinked insights | Cheap once insight bodies + issue titles are vectorized. |
-| One-click create-issue-from-insight | `POST /api/issues` exists; wiring + UX deferred. |
-| Webhook for `projects_v2_item.*` | The Kanban tab is poll-only at 60s freshness; a manual refresh button works. |
-| OAuth / multi-tenant | Single-PM, localhost. Multi-PM readiness is in the data model, not yet in auth. |
+| Deferred                                         | Why                                                                                                                                                                                                   |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source connectors (Slack / gdoc / Jira)          | The capture API is the foundation; per-source pipes feed it later.                                                                                                                                    |
+| In-app insight authoring                         | Currently capture-only; authoring in-app would bypass the AI extraction loop.                                                                                                                         |
+| Account alias merge                              | "Acme" vs "Acme Corp" split into two accounts. Ship the split visibly; manual merge later, no auto-guess.                                                                                             |
+| At-risk structured account chips                 | The at-risk AI Read names accounts in prose; render them as structured chips instead.                                                                                                                 |
+| Account-scoped master filter                     | The accounts index is unscoped (master filter is issue-label based).                                                                                                                                  |
+| Theme (pre-issue feature holder)                 | Signals link straight to issues; themes are ad hoc, premature to model.                                                                                                                               |
+| AI-suggested issue matches for unlinked insights | Cheap once insight bodies + issue titles are vectorized.                                                                                                                                              |
+| One-click create-issue-from-insight              | `POST /api/issues` exists; wiring + UX deferred.                                                                                                                                                      |
+| Webhook for `projects_v2_item.*`                 | The Kanban tab is poll-only at 60s freshness; a manual refresh button works.                                                                                                                          |
+| GitHub App private-key flow                      | **Shipped.** App creds mint the installation token in-app (`github.ts`).                                                                                                                              |
+| OAuth / multi-tenant                             | **Shipped.** Google login gate + roles + per-user GitHub write identity + multi-pod workspaces are live (all optional). Remaining: SSO providers beyond Google, no-refresh-rotation on GitHub tokens. |
 
 ## 9. Code map (paths relative to repo root)
 
@@ -317,6 +341,10 @@ api/src/
   masterFilter.ts    label-based include/exclude SQL helper
   predictive.ts      preventative at-risk detectors
   ai.ts              AI HTTP client + task functions (issue summary, progress, account read, extract)
+  auth.ts            Google OAuth login + session gating + role helpers
+  githubOauth.ts     per-user GitHub OAuth (layer 3): enable check, boot guards, code exchange
+  githubWriteIdentity.ts  resolves the Octokit for a write (caller's linked token vs service identity)
+  crypto.ts          AES-256-GCM encrypt/decrypt of stored user GitHub tokens (TOKEN_ENC_KEY)
   prompts/           summarize.md, progress.md, extract-insight.md
   routes/
     issues.ts        list, patch, create, /roadmap PATCH
@@ -331,6 +359,8 @@ api/src/
     insights.ts      insight sync + drafts (capture, regenerate, publish PR)
     accounts.ts      list / detail / AI-read + mini-CRM (create, PATCH /profile, POST /ingest, POST /ingest/csv)
     webhook.ts       GitHub webhook receiver
+    auth.ts          Google login / callback / logout / session (/api/auth/*)
+    githubAuth.ts    GitHub link / callback / unlink for per-user write identity (/api/github/*)
     ai.ts            issue-summary + progress endpoints, hash-invalidated cache
 web/src/
   App.tsx            top-level wiring, tab routing, use{Issues,Flow,Health,Insights,...} hooks
