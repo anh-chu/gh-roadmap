@@ -99,6 +99,7 @@ html,
 body {
   height: 100%;
   margin: 0;
+  max-width: 100vw;
 }
 body {
   background: var(--bg);
@@ -111,6 +112,20 @@ body {
   letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+
+.app-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 body::before {
   content: "";
@@ -246,6 +261,27 @@ button.sync-item:disabled {
   align-items: center;
   gap: 6px;
 }
+
+.head-overflow {
+  position: relative;
+  display: inline-flex;
+}
+
+.head-overflow .head-overflow-pop.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: auto;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  z-index: 30;
+}
+
+.head-overflow-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .btn {
   font-family: var(--sans);
   font-size: 12px;
@@ -261,6 +297,7 @@ button.sync-item:disabled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 .btn:hover {
   background: var(--hover);
@@ -446,6 +483,7 @@ button.av {
   top: calc(100% + 6px);
   left: 0;
   width: 220px;
+  max-width: calc(100vw - 16px);
 }
 .groupby-pop .pop-check input[type="radio"] {
   appearance: none;
@@ -561,7 +599,8 @@ button.av {
 .board {
   position: relative;
   z-index: 1;
-  height: calc(100vh - 109px);
+  height: 100%;
+  min-height: 0;
   overflow: auto;
   padding: 20px 24px 40px;
 }
@@ -1011,7 +1050,7 @@ button.av {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 520px;
+  width: min(520px, calc(100vw - 24px));
   max-width: 90vw;
   background: var(--canvas);
   border-left: 1px solid var(--border);
@@ -1796,7 +1835,8 @@ a.d-num:hover {
   display: none;
   position: relative;
   z-index: 1;
-  height: calc(100vh - 109px);
+  height: 100%;
+  min-height: 0;
   overflow: auto;
   padding: 20px 24px 40px;
 }
@@ -2112,9 +2152,131 @@ a.d-num:hover {
   gap: 16px;
   min-width: 0;
 }
-@media (max-width: 1000px) {
+@media (max-width: 1280px) {
+  header.top {
+    gap: 16px;
+    padding: 12px 16px;
+  }
+
+  .brand .repo {
+    display: none;
+  }
+
+  .meta .meta-counts {
+    display: none;
+  }
+
+  .current-user {
+    display: none;
+  }
+
+  .board {
+    padding: 12px 12px 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 10px;
+  }
+
+  .toolbar-left {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .filters {
+    width: 100%;
+  }
+
+  .search {
+    flex: 1;
+  }
+
+  .search input,
+  .search input:focus {
+    width: 100%;
+  }
+
+  header.top {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .meta {
+    display: none;
+  }
+
+  .current-user {
+    display: none;
+  }
+
+  .brand .name {
+    display: none;
+  }
+
+  .head-actions {
+    gap: 4px;
+  }
+
+  .board {
+    padding: 12px 12px 32px;
+  }
+
   .pg-main {
     grid-template-columns: 1fr;
+  }
+
+  .pg-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  header.top {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .head-actions {
+    gap: 4px;
+  }
+
+  .head-actions .btn .kbd {
+    display: none;
+  }
+
+  .new-issue-btn {
+    padding-inline: 8px;
+  }
+
+  .new-issue-btn .new-issue-label {
+    display: none;
+  }
+
+  .new-issue-btn::before {
+    content: "+";
+    font-size: 14px;
+    line-height: 1;
   }
 }
 .pg-verdict {
@@ -2165,11 +2327,6 @@ a.d-num:hover {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-4);
-}
-@media (max-width: 720px) {
-  .pg-stats {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ─────────────── COMMENT HOVER ACTIONS ─────────────── */
@@ -2296,7 +2453,7 @@ a.d-num:hover {
   }
 }
 .modal-card {
-  width: 480px;
+  width: min(480px, calc(100vw - 24px));
   max-width: 92vw;
   background: var(--canvas);
   border: 1px solid var(--border);
@@ -2449,6 +2606,7 @@ select.field-input {
 .popover {
   position: fixed;
   width: 280px;
+  max-width: calc(100vw - 16px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2618,6 +2776,7 @@ select.field-input {
   padding: 4px;
   display: flex;
   flex-direction: column;
+  max-width: calc(100vw - 16px);
 }
 .ws-menu-item {
   font-family: var(--mono);
@@ -2719,9 +2878,11 @@ select.field-input {
 }
 .scope-pop {
   width: 300px;
+  max-width: calc(100vw - 16px);
 }
 .flow-legend-pop {
   width: 388px;
+  max-width: calc(100vw - 16px);
 }
 .flow-legend-note {
   margin-bottom: 8px;
@@ -2875,7 +3036,8 @@ select.field-input {
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow-1);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .list-table {
   width: 100%;
@@ -3144,7 +3306,8 @@ select.field-input {
 .kanban {
   position: relative;
   z-index: 1;
-  height: calc(100vh - 110px);
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 16px 24px;
@@ -3745,7 +3908,8 @@ select.field-input {
   z-index: 1;
   padding: 18px 24px 80px;
   overflow-y: auto;
-  height: calc(100vh - 110px);
+  height: 100%;
+  min-height: 0;
 }
 .insight-filter-bar {
   position: sticky;
@@ -4635,7 +4799,7 @@ button.insight-account-chip:hover {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 560px;
+  width: min(560px, calc(100vw - 24px));
   max-width: 92vw;
   max-height: 88vh;
   overflow-y: auto;
@@ -4732,6 +4896,10 @@ button.insight-account-chip:hover {
 .btn.icon-only {
   padding: 6px 9px;
   line-height: 1;
+}
+
+.new-issue-btn {
+  position: relative;
 }
 
 /* ── Dark theme — escaped hardcoded overrides ───────────────────────────────

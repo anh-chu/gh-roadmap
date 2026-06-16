@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AuthUser, MetaResponse, WorkspaceConfig } from "../../../shared/types";
 import { ScopePill } from "./ScopePill";
 import { AiSettings } from "./AiSettings";
@@ -6,6 +6,7 @@ import { DataSettings } from "./DataSettings";
 import { UserSettings } from "./UserSettings";
 import { UserMenu } from "./UserMenu";
 import { WorkspaceSwitcher } from "./WorkspaceSettings";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { canEdit } from "../lib/role";
 
 function relativeTime(iso: string | null): string {
@@ -41,6 +42,9 @@ interface HeaderProps {
 
 export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiChange, onOpenFilter, onNewIssue, filterActive, onSync, syncing, theme, onToggleTheme }: HeaderProps): JSX.Element {
   const filterBtnRef = useRef<HTMLButtonElement | null>(null);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const compact = useMediaQuery("(max-width: 1280px)");
   const open = meta ? String(meta.openCount) : "—";
   const closed = meta ? String(meta.closedCount) : "—";
   const synced = meta ? relativeTime(meta.lastSyncAt) : "—";
@@ -55,6 +59,29 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
     : currentUserLogin
       ? `@${currentUserLogin}`
       : currentUserName ?? "";
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const onDoc = (e: MouseEvent): void => {
+      if (!(e.target instanceof Node)) return;
+      if (overflowRef.current?.contains(e.target)) return;
+      if (e.target instanceof Element && e.target.closest(".popover")) return;
+      setOverflowOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setOverflowOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [overflowOpen]);
+
+  useEffect(() => {
+    if (!compact) setOverflowOpen(false);
+  }, [compact]);
 
   return (
     <header className="top reveal" style={{ animationDelay: "0ms" }}>
@@ -82,7 +109,7 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         ) : (
           <span className="item"><span className="dot"></span>Synced <b>{synced}</b></span>
         )}
-        <span className="item"><b>{open}</b> open · <b>{closed}</b> closed</span>
+        <span className="item meta-counts"><b>{open}</b> open · <b>{closed}</b> closed</span>
       </div>
 
       <div className="head-actions">
@@ -105,17 +132,49 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         >
           <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
         </button>
-        {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} meta={meta ?? null} onChange={onAiChange} />}
-        {isAdmin && meta && (
-          <DataSettings
-            rateLimitRemaining={meta.rateLimitRemaining}
-            rateLimitLimit={meta.rateLimitLimit}
-          />
-        )}
-        {/* Users panel only makes sense with auth on (roles are dormant in localhost mode). */}
-        {isAdmin && authUser && <UserSettings />}
+        {isAdmin ? (
+          compact ? (
+            <div className="head-overflow" ref={overflowRef}>
+              <button
+                type="button"
+                className="btn icon-only"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={overflowOpen}
+                onClick={() => setOverflowOpen((v) => !v)}
+              >
+                ⋯
+              </button>
+              {overflowOpen && (
+                <div className="popover head-overflow-pop" role="menu">
+                  <div className="head-overflow-grid">
+                    <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} meta={meta ?? null} onChange={onAiChange} />
+                    {meta && (
+                      <DataSettings
+                        rateLimitRemaining={meta.rateLimitRemaining}
+                        rateLimitLimit={meta.rateLimitLimit}
+                      />
+                    )}
+                    {authUser && <UserSettings />}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} meta={meta ?? null} onChange={onAiChange} />
+              {meta && (
+                <DataSettings
+                  rateLimitRemaining={meta.rateLimitRemaining}
+                  rateLimitLimit={meta.rateLimitLimit}
+                />
+              )}
+              {authUser && <UserSettings />}
+            </>
+          )
+        ) : null}
         {/* Hidden for viewers — a viewer's write is never achievable (see lib/role.ts). */}
-        {canEdit() && <button className="btn primary" onClick={onNewIssue}><span>+ New issue</span></button>}
+        {canEdit() && <button className="btn primary new-issue-btn" onClick={onNewIssue} aria-label="New issue"><span className="new-issue-label">+ New issue</span></button>}
         <div className="avatars">
           {authUser ? (
             <UserMenu user={authUser} />

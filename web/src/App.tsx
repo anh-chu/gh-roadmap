@@ -290,90 +290,94 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
 
   return (
     <>
-      <Header
-        meta={meta}
-        config={config}
-        authUser={authUser}
-        isAdmin={isAdmin}
-        onScopeChange={(patch) => {
-          void (async () => {
-            const ok = await updateConfig(patch);
-            if (ok) void issuesApi.refresh();
-          })();
-        }}
-        onAiChange={(patch) => {
-          void updateConfig(patch);
-        }}
-        onOpenFilter={(r) => setFilterAnchor(r)}
-        onNewIssue={() => setShowNewIssue(true)}
-        filterActive={isRichFilterActive(richFilter)}
-        onSync={handleSync}
-        syncing={syncing}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-      />
-      {issuesApi.errorMessage && (
-        <div
-          role="alert"
-          style={{
-            background: "rgba(200, 60, 60, 0.08)",
-            color: "var(--red, #c83c3c)",
-            borderBottom: "1px solid rgba(200, 60, 60, 0.25)",
-            padding: "8px 16px",
-            fontSize: 13,
-          }}
-        >
-          Could not load issues from API. Check that the server is running and GITHUB_TOKEN is configured.
-        </div>
-      )}
-      <Toolbar
-        filter={filter}
-        onFilter={setFilter}
-        tab={tab}
-        onTab={(t) => {
-          if (t === "kanban") setKanbanVisited(true);
-          setTab(t);
-        }}
-        search={search}
-        onSearch={setSearch}
-        totalShown={totalShown}
-        config={config}
-        onConfigChange={(patch) => void updateConfig(patch)}
-      />
-      {tab === "progress" ? (
-        <Progress issues={issues} meta={meta} onOpen={handleOpen} />
-      ) : tab === "insights" ? (
-        <Insights issuesByNum={issuesByNum} onOpenIssue={handleOpen} onOpenAccount={openAccount} />
-      ) : tab === "accounts" ? (
-        <Accounts onOpenAccount={openAccount} />
-      ) : tab === "list" ? (
-        <List issues={issues} passFilter={passFilter} onOpen={handleOpen} flow={flow} insightCounts={insightCounts} todoStatusName={config.todoStatusName} backlogStatusName={config.backlogStatusName} />
-      ) : tab === "kanban" ? (
-        <Kanban
-          issues={issues}
-          onOpen={handleOpen}
-          onToast={(m) => toast.show(m)}
-          flow={flow}
-          projectsApi={projectsApi}
-          projectApi={projectApi}
-        />
-      ) : buckets ? (
-        <Board
-          issues={issues}
-          buckets={buckets}
+      <div className="app-shell">
+        <Header
+          meta={meta}
           config={config}
-          onOpen={handleOpen}
-          onMove={handleMove}
-          passFilter={passFilter}
-          flow={flow}
-          insightCounts={insightCounts}
-          projectPinned={meta?.projectPinned ?? false}
+          authUser={authUser}
+          isAdmin={isAdmin}
+          onScopeChange={(patch) => {
+            void (async () => {
+              const ok = await updateConfig(patch);
+              if (ok) void issuesApi.refresh();
+            })();
+          }}
+          onAiChange={(patch) => {
+            void updateConfig(patch);
+          }}
+          onOpenFilter={(r) => setFilterAnchor(r)}
+          onNewIssue={() => setShowNewIssue(true)}
+          filterActive={isRichFilterActive(richFilter)}
+          onSync={handleSync}
+          syncing={syncing}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
-      ) : (
-        <main className="board" style={{ padding: 40, textAlign: "center", color: "var(--ink-4)" }}>
-          {issuesApi.loading ? "Loading…" : "—"}
-        </main>
-      )}
+        {issuesApi.errorMessage && (
+          <div
+            role="alert"
+            style={{
+              background: "rgba(200, 60, 60, 0.08)",
+              color: "var(--red, #c83c3c)",
+              borderBottom: "1px solid rgba(200, 60, 60, 0.25)",
+              padding: "8px 16px",
+              fontSize: 13,
+            }}
+          >
+            Could not load issues from API. Check that the server is running and GITHUB_TOKEN is configured.
+          </div>
+        )}
+        <Toolbar
+          filter={filter}
+          onFilter={setFilter}
+          tab={tab}
+          onTab={(t) => {
+            if (t === "kanban") setKanbanVisited(true);
+            setTab(t);
+          }}
+          search={search}
+          onSearch={setSearch}
+          totalShown={totalShown}
+          config={config}
+          onConfigChange={(patch) => void updateConfig(patch)}
+        />
+        <div className="app-content">
+          {tab === "progress" ? (
+            <Progress issues={issues} meta={meta} onOpen={handleOpen} />
+          ) : tab === "insights" ? (
+            <Insights issuesByNum={issuesByNum} onOpenIssue={handleOpen} onOpenAccount={openAccount} />
+          ) : tab === "accounts" ? (
+            <Accounts onOpenAccount={openAccount} />
+          ) : tab === "list" ? (
+            <List issues={issues} passFilter={passFilter} onOpen={handleOpen} flow={flow} insightCounts={insightCounts} todoStatusName={config.todoStatusName} backlogStatusName={config.backlogStatusName} />
+          ) : tab === "kanban" ? (
+            <Kanban
+              issues={issues}
+              onOpen={handleOpen}
+              onToast={(m) => toast.show(m)}
+              flow={flow}
+              projectsApi={projectsApi}
+              projectApi={projectApi}
+            />
+          ) : buckets ? (
+            <Board
+              issues={issues}
+              buckets={buckets}
+              config={config}
+              onOpen={handleOpen}
+              onMove={handleMove}
+              passFilter={passFilter}
+              flow={flow}
+              insightCounts={insightCounts}
+              projectPinned={meta?.projectPinned ?? false}
+            />
+          ) : (
+            <main className="board" style={{ padding: 40, textAlign: "center", color: "var(--ink-4)" }}>
+              {issuesApi.loading ? "Loading…" : "—"}
+            </main>
+          )}
+        </div>
+      </div>
       <Drawer
         issue={openIssue}
         currentUser={currentUser}
