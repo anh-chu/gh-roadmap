@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
-import type { WorkspaceConfig } from "../../../shared/types";
+import type { MetaResponse, WorkspaceConfig } from "../../../shared/types";
 
 type AiConfigPatch = {
   aiModelSummary?: string | null;
@@ -13,10 +13,11 @@ type AiConfigPatch = {
 interface AiSettingsProps {
   config: WorkspaceConfig;
   envDefault: string | null;
+  meta: MetaResponse | null;
   onChange: (patch: AiConfigPatch) => void;
 }
 
-export function AiSettings({ config, envDefault, onChange }: AiSettingsProps): JSX.Element {
+export function AiSettings({ config, envDefault, meta, onChange }: AiSettingsProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -67,6 +68,7 @@ export function AiSettings({ config, envDefault, onChange }: AiSettingsProps): J
           anchor={anchor}
           config={config}
           envDefault={envDefault}
+          meta={meta}
           onChange={onChange}
         />
       )}
@@ -78,6 +80,7 @@ interface PopoverProps {
   anchor: DOMRect;
   config: WorkspaceConfig;
   envDefault: string | null;
+  meta: MetaResponse | null;
   onChange: (patch: AiConfigPatch) => void;
 }
 
@@ -193,8 +196,49 @@ function CostRow({ label, desc, value, unit, onCommit }: CostRowProps): JSX.Elem
   );
 }
 
+function UsageLine({ label, used, limit }: { label: string; used: number; limit: number }): JSX.Element {
+  const over = limit > 0 && used >= limit;
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        fontSize: 11,
+        opacity: over ? 1 : 0.8,
+        color: over ? "var(--red, #c83c3c)" : undefined,
+      }}
+    >
+      <span>{label}</span>
+      <span>
+        {used.toLocaleString()}
+        {limit > 0 ? ` / ${limit.toLocaleString()}` : ""}
+      </span>
+    </div>
+  );
+}
+
+// Read-only live usage meter (from /api/meta). Lines turn red when a limit is reached.
+function UsageBlock({ meta }: { meta: MetaResponse | null }): JSX.Element {
+  return (
+    <div
+      className="pop-section"
+      style={{ borderTop: "1px solid var(--border, #e2e2e2)", marginTop: 4, paddingTop: 8, display: "flex", flexDirection: "column", gap: 4 }}
+    >
+      <div className="pop-label">Usage</div>
+      {meta ? (
+        <>
+          <UsageLine label="Requests (last min)" used={meta.aiRequestsLastMinute} limit={meta.aiRateLimitRpm} />
+          <UsageLine label="Tokens (today)" used={meta.aiTokensUsedToday} limit={meta.aiDailyTokenBudget} />
+          <UsageLine label="Tokens (this month)" used={meta.aiTokensUsedThisMonth} limit={0} />
+        </>
+      ) : (
+        <div className="scope-help" style={{ fontSize: 11, opacity: 0.7 }}>—</div>
+      )}
+    </div>
+  );
+}
 const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
-  { anchor, config, envDefault, onChange },
+  { anchor, config, envDefault, meta, onChange },
   ref,
 ) {
   const envLabel = envDefault ?? "(unset)";
@@ -261,6 +305,7 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         unit="tokens/day"
         onCommit={(v) => onChange({ aiDailyTokenBudget: v })}
       />
+      <UsageBlock meta={meta} />
     </div>
   );
 });

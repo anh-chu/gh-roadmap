@@ -105,7 +105,7 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         >
           <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
         </button>
-        {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />}
+        {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} meta={meta ?? null} onChange={onAiChange} />}
         {isAdmin && meta && (
           <DataSettings
             rateLimitRemaining={meta.rateLimitRemaining}

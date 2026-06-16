@@ -150,12 +150,30 @@ function utcDayStartMs(now: number = Date.now()): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
+// Start of the current UTC month in epoch ms — used for the monthly usage readout.
+function utcMonthStartMs(now: number = Date.now()): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+}
+
 // Token usage since UTC midnight for a workspace. Exported for the /api/meta usage meter.
 export function aiTokensUsedToday(workspaceId: number): number {
   try {
     const row = db()
       .prepare("SELECT COALESCE(SUM(total_tokens), 0) AS s FROM ai_usage WHERE workspace_id = ? AND ts >= ?")
       .get(workspaceId, utcDayStartMs()) as { s: number } | undefined;
+    return row?.s ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Token usage since the start of the UTC month. Exported for the /api/meta usage meter.
+export function aiTokensUsedThisMonth(workspaceId: number): number {
+  try {
+    const row = db()
+      .prepare("SELECT COALESCE(SUM(total_tokens), 0) AS s FROM ai_usage WHERE workspace_id = ? AND ts >= ?")
+      .get(workspaceId, utcMonthStartMs()) as { s: number } | undefined;
     return row?.s ?? 0;
   } catch {
     return 0;

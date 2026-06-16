@@ -4,7 +4,7 @@ import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels,
 import type { BucketingField, BucketsInfo } from "../../../shared/types.js";
 import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterFilter.js";
 import { projectFilter } from "./projects.js";
-import { aiTokensUsedToday, aiRequestsLastMinute, aiLimits } from "../ai.js";
+import { aiTokensUsedToday, aiTokensUsedThisMonth, aiRequestsLastMinute, aiLimits } from "../ai.js";
 
 type IssueScanRow = { labels: string; assignee: string | null; milestone: string | null };
 
@@ -175,6 +175,7 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
       repoSlug: getRepoSlug(),
       projectPinned: projectFilter() !== null,
       aiTokensUsedToday: aiTokensUsedToday(workspaceId),
+      aiTokensUsedThisMonth: aiTokensUsedThisMonth(workspaceId),
       aiDailyTokenBudget: limits.dailyTokenBudget,
       aiRequestsLastMinute: aiRequestsLastMinute(workspaceId),
       aiRateLimitRpm: limits.rateLimitRpm,

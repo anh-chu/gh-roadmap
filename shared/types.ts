@@ -172,6 +172,7 @@ export interface MetaResponse {
   // requestsLastMinute counts AI calls in the trailing 60s. The *Limit/*Budget/
   // maxTokens fields mirror workspace_config (0 = unlimited/uncapped).
   aiTokensUsedToday: number;
+  aiTokensUsedThisMonth: number;
   aiDailyTokenBudget: number;
   aiRequestsLastMinute: number;
   aiRateLimitRpm: number;
