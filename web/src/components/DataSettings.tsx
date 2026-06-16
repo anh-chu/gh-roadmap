@@ -1,10 +1,15 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { importData } from "../lib/api";
 
+interface DataSettingsProps {
+  rateLimitRemaining: number;
+  rateLimitLimit: number;
+}
+
 // Whole-workspace backup/restore. Export streams the full DB as one JSON file (browser
 // download via the attachment header). Import wipes + reloads every table in the file,
 // then reloads the page so the module-level hook caches re-fetch.
-export function DataSettings(): JSX.Element {
+export function DataSettings({ rateLimitRemaining, rateLimitLimit }: DataSettingsProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -41,12 +46,20 @@ export function DataSettings(): JSX.Element {
       <button ref={btnRef} className="btn" onClick={handleOpen} title="Export / import the whole workspace">
         <span>Data</span>
       </button>
-      {open && anchor && <DataPopover ref={popRef} anchor={anchor} />}
+      {open && anchor && (
+        <DataPopover
+          ref={popRef}
+          anchor={anchor}
+          rateLimitRemaining={rateLimitRemaining}
+          rateLimitLimit={rateLimitLimit}
+        />
+      )}
     </>
   );
 }
 
-const DataPopover = forwardRef<HTMLDivElement, { anchor: DOMRect }>(function DataPopover({ anchor }, ref) {
+const DataPopover = forwardRef<HTMLDivElement, { anchor: DOMRect; rateLimitRemaining: number; rateLimitLimit: number }>(function DataPopover({ anchor, rateLimitRemaining, rateLimitLimit }, ref) {
+  const budget = rateLimitLimit > 0 ? Math.round((rateLimitRemaining / rateLimitLimit) * 100) + "%" : "—";
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -84,6 +97,9 @@ const DataPopover = forwardRef<HTMLDivElement, { anchor: DOMRect }>(function Dat
         <div className="scope-help" style={{ fontSize: 11, opacity: 0.75 }}>
           Full backup of every table — GitHub mirror, AI caches, and the app-only planning layer
           (months, TODOs, accounts, drafts). Import <b>replaces</b> all data in the file.
+        </div>
+        <div className="scope-help" style={{ fontSize: 11, opacity: 0.75, marginTop: 6 }}>
+          GitHub API budget: <b>{budget}</b> ({rateLimitRemaining.toLocaleString()} / {rateLimitLimit.toLocaleString()})
         </div>
       </div>
 

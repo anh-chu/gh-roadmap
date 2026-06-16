@@ -3,6 +3,22 @@ import type { Account, AccountIngestResult, AccountIngestRow } from "../../../sh
 import { useAccounts } from "../hooks/useAccounts";
 import { createAccount, ingestAccounts, ingestAccountsCsv } from "../lib/api";
 
+const ARR_COMPACT_FORMATTER = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  compactDisplay: "short",
+  maximumFractionDigits: 1,
+});
+
+function formatArrCompact(value: number | null): string | null {
+  if (value === null) return null;
+  return `$${ARR_COMPACT_FORMATTER.format(value)}`;
+}
+
+function formatRenewalDate(value: string | null): string | null {
+  if (value === null) return null;
+  return value.slice(0, 10);
+}
+
 interface AccountsProps {
   onOpenAccount: (slug: string) => void;
 }
@@ -161,6 +177,9 @@ interface AccountRowProps {
 }
 
 function AccountRow({ account, onOpen }: AccountRowProps): JSX.Element {
+
+  const arr = formatArrCompact(account.arr);
+  const renewalDate = formatRenewalDate(account.renewalDate);
   return (
     <div
       className="insight-row"
@@ -182,10 +201,10 @@ function AccountRow({ account, onOpen }: AccountRowProps): JSX.Element {
         )}
       </div>
       <div className="insight-row-meta">
-        {account.arr !== null && (
-          <span className="insight-row-owner">${account.arr.toLocaleString("en-US")}</span>
-        )}
-        {account.owner && <span className="insight-row-owner">{account.owner}</span>}
+        {arr && <span className="insight-row-owner">ARR {arr}</span>}
+        {account.tier && <span className="insight-row-owner">Tier {account.tier}</span>}
+        {account.owner && <span className="insight-row-owner">Owner {account.owner}</span>}
+        {renewalDate && <span className="insight-row-owner">Renews {renewalDate}</span>}
         <span className="insight-row-owner">
           <span className="insight-pin">📎</span> {account.signalCount} signal{account.signalCount === 1 ? "" : "s"}
         </span>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BucketingField, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import { buildColumns } from "../lib/timeRange";
 import { canEdit } from "../lib/role";
+import { FlowLegendPopover } from "./FlowLegendPopover";
 
 export type FilterKey = "all" | "mine";
 export type TabKey = "roadmap" | "list" | "kanban" | "insights" | "accounts" | "progress";
@@ -278,6 +279,9 @@ function RangeControl({ config, onChange }: RangeControlProps): JSX.Element {
 
 export function Toolbar(props: ToolbarProps): JSX.Element {
   const { filter, onFilter, tab, onTab, search, onSearch, totalShown, config, onConfigChange } = props;
+  const showWorkspaceControls = tab === "roadmap" || tab === "list";
+  const showRoadmapControls = tab === "roadmap";
+
   return (
     <div className="toolbar reveal" style={{ animationDelay: "60ms" }}>
       <div className="toolbar-left">
@@ -307,21 +311,24 @@ export function Toolbar(props: ToolbarProps): JSX.Element {
             Progress
           </button>
         </div>
-        <GroupByDropdown config={config} onChange={onConfigChange} />
-        <RangeControl config={config} onChange={onConfigChange} />
+        <FlowLegendPopover />
+        {showRoadmapControls && <GroupByDropdown config={config} onChange={onConfigChange} />}
+        {showRoadmapControls && <RangeControl config={config} onChange={onConfigChange} />}
       </div>
 
-      <div className="filters">
-        <div className="search">
-          <input placeholder="Search issues..." value={search} onChange={(e) => onSearch(e.target.value)} />
+      {showWorkspaceControls && (
+        <div className="filters">
+          <div className="search">
+            <input placeholder="Search issues..." value={search} onChange={(e) => onSearch(e.target.value)} />
+          </div>
+          <button className={"chip" + (filter === "all" ? " active" : "")} data-filter="all" onClick={() => onFilter("all")}>
+            All <span style={{ fontFamily: "var(--mono)", color: "inherit", opacity: 0.6 }}>{totalShown}</span>
+          </button>
+          <button className={"chip" + (filter === "mine" ? " active" : "")} data-filter="mine" onClick={() => onFilter("mine")}>
+            Mine
+          </button>
         </div>
-        <button className={"chip" + (filter === "all" ? " active" : "")} data-filter="all" onClick={() => onFilter("all")}>
-          All <span style={{ fontFamily: "var(--mono)", color: "inherit", opacity: 0.6 }}>{totalShown}</span>
-        </button>
-        <button className={"chip" + (filter === "mine" ? " active" : "")} data-filter="mine" onClick={() => onFilter("mine")}>
-          Mine
-        </button>
-      </div>
+      )}
     </div>
   );
 }

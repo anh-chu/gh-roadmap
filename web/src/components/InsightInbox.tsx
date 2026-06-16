@@ -144,7 +144,7 @@ export function InsightInbox(props: InsightInboxProps): JSX.Element {
         <div className="insight-inbox-empty">Loading…</div>
       )}
       {!error && !loading && count === 0 && (
-        <div className="insight-inbox-empty">Inbox is empty. Click + Capture to add.</div>
+        <div className="insight-inbox-empty insight-inbox-empty-compact">Inbox empty. Click + Capture to add.</div>
       )}
       {drafts.map((d) => (
         <div key={d.id} className="insight-draft-block">

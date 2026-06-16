@@ -44,11 +44,16 @@ function momentumLabel(c: number | null): { text: string; color: string } {
 function verdict(
   schedule: ScheduleHealth | null,
   atRisk: RiskItem[],
+  closedThisMonth: number | null,
 ): { text: string; color: string } {
   const needs = atRisk.filter((r) => r.severity >= 2).length;
   const needsTail = needs > 0 ? ` · ${needs} need${needs === 1 ? "s" : ""} attention` : "";
+  const positiveTail = closedThisMonth && closedThisMonth > 0 ? ` Still, ${closedThisMonth} closed this month.` : "";
   if (!schedule || schedule.status === "no-plan") {
-    return { text: "No roadmap commitments yet — nothing to track against dates.", color: "var(--ink-3)" };
+    return {
+      text: `No roadmap commitments yet — nothing to track against dates.${positiveTail}`,
+      color: "var(--ink-3)",
+    };
   }
   const { status, overdue, dueSoonAtRisk, committed } = schedule;
   const driver: string[] = [];
@@ -56,11 +61,14 @@ function verdict(
   if (dueSoonAtRisk > 0) driver.push(`${dueSoonAtRisk} due now, not moving`);
   const lbl = scheduleStatusLabel(status);
   if (status === "on-track") {
-    return { text: `Roadmap on track — ${committed} committed, dates holding${needsTail}.`, color: lbl.color };
+    return {
+      text: `Roadmap on track — ${committed} committed, dates holding${needsTail}.${positiveTail}`,
+      color: lbl.color,
+    };
   }
   const head = status === "watch" ? "Roadmap needs a look" : `Roadmap ${lbl.text}`;
   const why = driver.length ? ` — ${driver.join(", ")}` : "";
-  return { text: `${head}${why}${needsTail}.`, color: lbl.color };
+  return { text: `${head}${why}${needsTail}.${positiveTail}`, color: lbl.color };
 }
 
 function Sparkline({ values }: { values: (number | null)[] }): JSX.Element | null {
@@ -110,7 +118,7 @@ export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
 
   const sched = schedule ? scheduleStatusLabel(schedule.status) : scheduleStatusLabel("no-plan");
   const mom = momentumLabel(confidence);
-  const v = verdict(schedule, atRisk);
+  const v = verdict(schedule, atRisk, meta?.closedThisMonth ?? null);
 
   const issueByNum = useMemo(() => new Map(issues.map((i) => [i.num, i])), [issues]);
 
