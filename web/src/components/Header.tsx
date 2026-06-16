@@ -29,7 +29,7 @@ interface HeaderProps {
   // Gates admin-only controls (AI model settings + data export/import).
   isAdmin: boolean;
   onScopeChange: (patch: { masterFilterInclude?: string[]; masterFilterExclude?: string[] }) => void;
-  onAiChange: (patch: { aiModelSummary?: string | null; aiModelProgress?: string | null; aiModelExtract?: string | null }) => void;
+  onAiChange: (patch: { aiModelSummary?: string | null; aiModelProgress?: string | null; aiModelExtract?: string | null; aiMaxTokensPerRequest?: number; aiRateLimitRpm?: number; aiDailyTokenBudget?: number }) => void;
   onOpenFilter: (rect: DOMRect) => void;
   onNewIssue: () => void;
   filterActive: boolean;
@@ -43,11 +43,18 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
   const filterBtnRef = useRef<HTMLButtonElement | null>(null);
   const open = meta ? String(meta.openCount) : "—";
   const closed = meta ? String(meta.closedCount) : "—";
-  const budget = meta && meta.rateLimitLimit > 0
+  const synced = meta ? relativeTime(meta.lastSyncAt) : "—";
+  const apiBudget = meta && meta.rateLimitLimit > 0
     ? Math.round((meta.rateLimitRemaining / meta.rateLimitLimit) * 100) + "%"
     : "—";
-  const synced = meta ? relativeTime(meta.lastSyncAt) : "—";
   const userInitial = meta?.currentUser?.[0]?.toUpperCase() ?? null;
+  const currentUserLogin = meta?.currentUser ?? null;
+  const currentUserName = authUser?.name ?? null;
+  const currentUserTitle = currentUserName && currentUserLogin
+    ? `${currentUserName} · @${currentUserLogin}`
+    : currentUserLogin
+      ? `@${currentUserLogin}`
+      : currentUserName ?? "";
 
   return (
     <header className="top reveal" style={{ animationDelay: "0ms" }}>
@@ -67,7 +74,7 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
             className={"item sync-item" + (syncing ? " syncing" : "")}
             onClick={onSync}
             disabled={syncing}
-            title="Sync now — pull latest from GitHub + insights"
+            title={meta ? `Sync now — pull latest from GitHub + insights · API budget ${apiBudget}` : "Sync now — pull latest from GitHub + insights"}
           >
             <span className="dot"></span>
             {syncing ? "Syncing…" : <>Synced <b>{synced}</b></>}
@@ -75,7 +82,6 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
         ) : (
           <span className="item"><span className="dot"></span>Synced <b>{synced}</b></span>
         )}
-        <span className="item">API budget <b>{budget}</b></span>
         <span className="item"><b>{open}</b> open · <b>{closed}</b> closed</span>
       </div>
 
@@ -100,7 +106,12 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
           <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
         </button>
         {isAdmin && <AiSettings config={config} envDefault={meta?.aiEnvDefault ?? null} onChange={onAiChange} />}
-        {isAdmin && <DataSettings />}
+        {isAdmin && meta && (
+          <DataSettings
+            rateLimitRemaining={meta.rateLimitRemaining}
+            rateLimitLimit={meta.rateLimitLimit}
+          />
+        )}
         {/* Users panel only makes sense with auth on (roles are dormant in localhost mode). */}
         {isAdmin && authUser && <UserSettings />}
         {/* Hidden for viewers — a viewer's write is never achievable (see lib/role.ts). */}
@@ -112,6 +123,12 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
             <span className="av" title={meta?.currentUser ?? ""}>{userInitial}</span>
           ) : (
             <span className="av" title="signed-in user unavailable">—</span>
+          )}
+          {currentUserTitle && (
+            <span className="current-user" title={currentUserTitle}>
+              {currentUserName ? <span className="current-user-name">{currentUserName}</span> : null}
+              {currentUserLogin ? <span className="current-user-login">@{currentUserLogin}</span> : null}
+            </span>
           )}
         </div>
       </div>

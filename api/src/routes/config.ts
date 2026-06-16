@@ -36,6 +36,9 @@ type ConfigRow = {
   ai_model_summary: string | null;
   ai_model_progress: string | null;
   ai_model_extract: string | null;
+  ai_max_tokens_per_request: number;
+  ai_rate_limit_rpm: number;
+  ai_daily_token_budget: number;
   updated_at: string;
 };
 
@@ -62,7 +65,7 @@ function parseList(raw: string): string[] {
 function readConfig(workspaceId: number): WorkspaceConfig {
   const row = db()
     .prepare(
-      "SELECT bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, todo_stale_days, flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, pin_meta_cols, todo_status_name, backlog_status_name, predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours, ai_model_summary, ai_model_progress, ai_model_extract, updated_at FROM workspace_config WHERE id = ?",
+      "SELECT bucketing_field, bucketing_value, master_filter_include, master_filter_exclude, range_granularity, range_count, range_offset, todo_stale_days, flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, pin_meta_cols, todo_status_name, backlog_status_name, predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours, ai_model_summary, ai_model_progress, ai_model_extract, ai_max_tokens_per_request, ai_rate_limit_rpm, ai_daily_token_budget, updated_at FROM workspace_config WHERE id = ?",
     )
     .get(workspaceId) as ConfigRow | undefined;
   if (!row) {
@@ -93,6 +96,9 @@ function readConfig(workspaceId: number): WorkspaceConfig {
       aiModelSummary: null,
       aiModelProgress: null,
       aiModelExtract: null,
+      aiMaxTokensPerRequest: 0,
+      aiRateLimitRpm: 0,
+      aiDailyTokenBudget: 0,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -123,6 +129,9 @@ function readConfig(workspaceId: number): WorkspaceConfig {
     aiModelSummary: row.ai_model_summary ?? null,
     aiModelProgress: row.ai_model_progress ?? null,
     aiModelExtract: row.ai_model_extract ?? null,
+    aiMaxTokensPerRequest: row.ai_max_tokens_per_request,
+    aiRateLimitRpm: row.ai_rate_limit_rpm,
+    aiDailyTokenBudget: row.ai_daily_token_budget,
     updatedAt: row.updated_at,
   };
 }
@@ -193,6 +202,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       aiModelSummary?: string | null;
       aiModelProgress?: string | null;
       aiModelExtract?: string | null;
+      aiMaxTokensPerRequest?: number;
+      aiRateLimitRpm?: number;
+      aiDailyTokenBudget?: number;
     };
   }>(
     "/api/config",
@@ -228,6 +240,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
             aiModelSummary: { type: ["string", "null"] },
             aiModelProgress: { type: ["string", "null"] },
             aiModelExtract: { type: ["string", "null"] },
+            aiMaxTokensPerRequest: { type: "number" },
+            aiRateLimitRpm: { type: "number" },
+            aiDailyTokenBudget: { type: "number" },
           },
         },
       },
@@ -393,10 +408,39 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         nextAiModelExtract = r.value;
       }
 
+      // AI cost controls (admin-only, inherits the handler's admin gate above).
+      // 0 = disabled/unlimited. Validate as non-negative integers within sane bounds.
+      let nextAiMaxTokensPerRequest = current.aiMaxTokensPerRequest;
+      let nextAiRateLimitRpm = current.aiRateLimitRpm;
+      let nextAiDailyTokenBudget = current.aiDailyTokenBudget;
+      const validateCost = (
+        raw: unknown,
+        name: string,
+        max: number,
+      ): { ok: true; value: number } | { ok: false; error: string } => {
+        if (typeof raw !== "number" || !Number.isInteger(raw)) return { ok: false, error: `${name} must be an integer` };
+        if (raw < 0 || raw > max) return { ok: false, error: `${name} must be in [0, ${max}] (0 = unlimited)` };
+        return { ok: true, value: raw };
+      };
+      if (req.body.aiMaxTokensPerRequest !== undefined) {
+        const r = validateCost(req.body.aiMaxTokensPerRequest, "aiMaxTokensPerRequest", 1_000_000);
+        if (!r.ok) return reply.code(400).send({ error: r.error });
+        nextAiMaxTokensPerRequest = r.value;
+      }
+      if (req.body.aiRateLimitRpm !== undefined) {
+        const r = validateCost(req.body.aiRateLimitRpm, "aiRateLimitRpm", 100_000);
+        if (!r.ok) return reply.code(400).send({ error: r.error });
+        nextAiRateLimitRpm = r.value;
+      }
+      if (req.body.aiDailyTokenBudget !== undefined) {
+        const r = validateCost(req.body.aiDailyTokenBudget, "aiDailyTokenBudget", 1_000_000_000);
+        if (!r.ok) return reply.code(400).send({ error: r.error });
+        nextAiDailyTokenBudget = r.value;
+      }
       const now = new Date().toISOString();
       db()
         .prepare(
-          "UPDATE workspace_config SET bucketing_field = ?, bucketing_value = ?, master_filter_include = ?, master_filter_exclude = ?, range_granularity = ?, range_count = ?, range_offset = ?, todo_stale_days = ?, flow_shipping_hours = ?, flow_review_days = ?, flow_code_days = ?, flow_discussion_days = ?, flow_stall_days = ?, flow_cold_days = ?, flow_fresh_days = ?, pin_meta_cols = ?, todo_status_name = ?, backlog_status_name = ?, predict_pr_stale_days = ?, predict_pr_min_age = ?, predict_review_wait_days = ?, predict_promise_confidence_min = ?, predict_reply_overdue_hours = ?, ai_model_summary = ?, ai_model_progress = ?, ai_model_extract = ?, updated_at = ? WHERE id = ?",
+          "UPDATE workspace_config SET bucketing_field = ?, bucketing_value = ?, master_filter_include = ?, master_filter_exclude = ?, range_granularity = ?, range_count = ?, range_offset = ?, todo_stale_days = ?, flow_shipping_hours = ?, flow_review_days = ?, flow_code_days = ?, flow_discussion_days = ?, flow_stall_days = ?, flow_cold_days = ?, flow_fresh_days = ?, pin_meta_cols = ?, todo_status_name = ?, backlog_status_name = ?, predict_pr_stale_days = ?, predict_pr_min_age = ?, predict_review_wait_days = ?, predict_promise_confidence_min = ?, predict_reply_overdue_hours = ?, ai_model_summary = ?, ai_model_progress = ?, ai_model_extract = ?, ai_max_tokens_per_request = ?, ai_rate_limit_rpm = ?, ai_daily_token_budget = ?, updated_at = ? WHERE id = ?",
         )
         .run(
           nextField,
@@ -425,6 +469,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           nextAiModelSummary,
           nextAiModelProgress,
           nextAiModelExtract,
+          nextAiMaxTokensPerRequest,
+          nextAiRateLimitRpm,
+          nextAiDailyTokenBudget,
           now,
           workspaceId,
         );
@@ -456,6 +503,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         aiModelSummary: nextAiModelSummary,
         aiModelProgress: nextAiModelProgress,
         aiModelExtract: nextAiModelExtract,
+        aiMaxTokensPerRequest: nextAiMaxTokensPerRequest,
+        aiRateLimitRpm: nextAiRateLimitRpm,
+        aiDailyTokenBudget: nextAiDailyTokenBudget,
         updatedAt: now,
       } satisfies WorkspaceConfig;
     },

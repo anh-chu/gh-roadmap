@@ -1,14 +1,19 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { WorkspaceConfig } from "../../../shared/types";
 
+type AiConfigPatch = {
+  aiModelSummary?: string | null;
+  aiModelProgress?: string | null;
+  aiModelExtract?: string | null;
+  aiMaxTokensPerRequest?: number;
+  aiRateLimitRpm?: number;
+  aiDailyTokenBudget?: number;
+};
+
 interface AiSettingsProps {
   config: WorkspaceConfig;
   envDefault: string | null;
-  onChange: (patch: {
-    aiModelSummary?: string | null;
-    aiModelProgress?: string | null;
-    aiModelExtract?: string | null;
-  }) => void;
+  onChange: (patch: AiConfigPatch) => void;
 }
 
 export function AiSettings({ config, envDefault, onChange }: AiSettingsProps): JSX.Element {
@@ -73,11 +78,7 @@ interface PopoverProps {
   anchor: DOMRect;
   config: WorkspaceConfig;
   envDefault: string | null;
-  onChange: (patch: {
-    aiModelSummary?: string | null;
-    aiModelProgress?: string | null;
-    aiModelExtract?: string | null;
-  }) => void;
+  onChange: (patch: AiConfigPatch) => void;
 }
 
 interface RowProps {
@@ -142,6 +143,56 @@ function AiModelRow({ label, desc, value, envDefault, onCommit }: RowProps): JSX
   );
 }
 
+interface CostRowProps {
+  label: string;
+  desc: string;
+  value: number;
+  unit: string;
+  onCommit: (next: number) => void;
+}
+
+// Numeric cost-control input. 0 = unlimited/uncapped. Commits a non-negative integer.
+function CostRow({ label, desc, value, unit, onCommit }: CostRowProps): JSX.Element {
+  const [draft, setDraft] = useState<string>(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = (): void => {
+    const n = Math.trunc(Number(draft));
+    const next = Number.isFinite(n) && n >= 0 ? n : value;
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+
+  return (
+    <div className="pop-section">
+      <div className="pop-label">{label}</div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <input
+          className="tag-input"
+          style={{ flex: 1 }}
+          type="number"
+          min={0}
+          step={1}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+        />
+        <span className="scope-help" style={{ fontSize: 11, opacity: 0.7 }}>{unit}</span>
+      </div>
+      <div className="scope-help" style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>{desc}</div>
+    </div>
+  );
+}
+
 const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
   { anchor, config, envDefault, onChange },
   ref,
@@ -181,6 +232,34 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         value={config.aiModelExtract}
         envDefault={envDefault}
         onCommit={(v) => onChange({ aiModelExtract: v })}
+      />
+      <div className="pop-section" style={{ borderTop: "1px solid var(--border, #e2e2e2)", marginTop: 4, paddingTop: 8 }}>
+        <div className="pop-label">Cost controls</div>
+        <div className="scope-help" style={{ fontSize: 11, opacity: 0.75 }}>
+          Per-workspace guardrails. <code>0</code> = unlimited. Daily budget resets at UTC midnight;
+          once hit, AI requests return 503 until reset.
+        </div>
+      </div>
+      <CostRow
+        label="Max tokens / request"
+        desc="Hard cap injected as max_tokens on every completion"
+        value={config.aiMaxTokensPerRequest}
+        unit="tokens"
+        onCommit={(v) => onChange({ aiMaxTokensPerRequest: v })}
+      />
+      <CostRow
+        label="Rate limit"
+        desc="Max successful AI requests per minute (whole workspace)"
+        value={config.aiRateLimitRpm}
+        unit="req/min"
+        onCommit={(v) => onChange({ aiRateLimitRpm: v })}
+      />
+      <CostRow
+        label="Daily token budget"
+        desc="Total tokens allowed per UTC day before AI hard-stops"
+        value={config.aiDailyTokenBudget}
+        unit="tokens/day"
+        onCommit={(v) => onChange({ aiDailyTokenBudget: v })}
       />
     </div>
   );

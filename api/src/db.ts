@@ -327,8 +327,26 @@ export function initDb(path: string): Database.Database {
       ai_model_summary        TEXT,
       ai_model_progress       TEXT,
       ai_model_extract        TEXT,
+      ai_max_tokens_per_request INTEGER NOT NULL DEFAULT 0,
+      ai_rate_limit_rpm         INTEGER NOT NULL DEFAULT 0,
+      ai_daily_token_budget     INTEGER NOT NULL DEFAULT 0,
       updated_at              TEXT NOT NULL
     );
+
+    -- AI usage ledger: one row per successful chat completion. Drives in-app
+    -- cost controls (per-minute rate limit + daily UTC token budget) and the
+    -- usage meter surfaced on /api/meta. ts is epoch ms.
+    CREATE TABLE IF NOT EXISTS ai_usage (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id      INTEGER NOT NULL,
+      ts                INTEGER NOT NULL,
+      task              TEXT NOT NULL,
+      model             TEXT NOT NULL,
+      prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens      INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_ws_ts ON ai_usage(workspace_id, ts);
   `);
 
   // Migrate older DBs that pre-date created_at / closed_at columns.
@@ -442,6 +460,15 @@ export function initDb(path: string): Database.Database {
   }
   if (!wcColNames.has("ai_model_extract")) {
     db.exec("ALTER TABLE workspace_config ADD COLUMN ai_model_extract TEXT");
+  }
+  if (!wcColNames.has("ai_max_tokens_per_request")) {
+    db.exec("ALTER TABLE workspace_config ADD COLUMN ai_max_tokens_per_request INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!wcColNames.has("ai_rate_limit_rpm")) {
+    db.exec("ALTER TABLE workspace_config ADD COLUMN ai_rate_limit_rpm INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!wcColNames.has("ai_daily_token_budget")) {
+    db.exec("ALTER TABLE workspace_config ADD COLUMN ai_daily_token_budget INTEGER NOT NULL DEFAULT 0");
   }
   // Status-as-Projects: which pinned-project Status option names map to the
   // Roadmap board's TODO / Backlog meta columns. Per-pod by construction.

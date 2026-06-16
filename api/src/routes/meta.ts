@@ -4,6 +4,7 @@ import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels,
 import type { BucketingField, BucketsInfo } from "../../../shared/types.js";
 import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterFilter.js";
 import { projectFilter } from "./projects.js";
+import { aiTokensUsedToday, aiRequestsLastMinute, aiLimits } from "../ai.js";
 
 type IssueScanRow = { labels: string; assignee: string | null; milestone: string | null };
 
@@ -134,6 +135,7 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
 
     const buckets = computeBuckets(workspaceId, field, value);
     const areas = field === "label" && value === "area" ? buckets.options : [];
+    const limits = aiLimits(workspaceId);
 
     // webhookEventsToday is a sync_log metric, not an issue metric — leave unscoped.
     const webhookEventsToday = (db()
@@ -172,6 +174,11 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
       areas,
       repoSlug: getRepoSlug(),
       projectPinned: projectFilter() !== null,
+      aiTokensUsedToday: aiTokensUsedToday(workspaceId),
+      aiDailyTokenBudget: limits.dailyTokenBudget,
+      aiRequestsLastMinute: aiRequestsLastMinute(workspaceId),
+      aiRateLimitRpm: limits.rateLimitRpm,
+      aiMaxTokensPerRequest: limits.maxTokensPerRequest,
     };
   });
 }

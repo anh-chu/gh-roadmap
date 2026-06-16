@@ -113,6 +113,131 @@ export function aiModel(): string {
   return process.env.AI_MODEL ?? "";
 }
 
+// ─────────────── COST CONTROLS (max_tokens cap · rate limit · daily budget) ───────────────
+// All admin-configured in workspace_config; 0 = disabled/unlimited. Enforced at the single
+// chat chokepoint (runChat) so every AI surface inherits the limits. Breaches throw — routes
+// already catch AI-fn errors and map them to 503, which is the agreed "hard stop" behaviour.
+
+export interface AiLimits {
+  maxTokensPerRequest: number;
+  rateLimitRpm: number;
+  dailyTokenBudget: number;
+}
+
+function readLimits(workspaceId: number): AiLimits {
+  try {
+    const row = db()
+      .prepare(
+        "SELECT ai_max_tokens_per_request, ai_rate_limit_rpm, ai_daily_token_budget FROM workspace_config WHERE id = ?",
+      )
+      .get(workspaceId) as
+      | { ai_max_tokens_per_request: number; ai_rate_limit_rpm: number; ai_daily_token_budget: number }
+      | undefined;
+    return {
+      maxTokensPerRequest: row?.ai_max_tokens_per_request ?? 0,
+      rateLimitRpm: row?.ai_rate_limit_rpm ?? 0,
+      dailyTokenBudget: row?.ai_daily_token_budget ?? 0,
+    };
+  } catch {
+    // DB not initialised yet — treat as no limits.
+    return { maxTokensPerRequest: 0, rateLimitRpm: 0, dailyTokenBudget: 0 };
+  }
+}
+
+// Start of the current UTC day in epoch ms — the daily budget window boundary.
+function utcDayStartMs(now: number = Date.now()): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+// Token usage since UTC midnight for a workspace. Exported for the /api/meta usage meter.
+export function aiTokensUsedToday(workspaceId: number): number {
+  try {
+    const row = db()
+      .prepare("SELECT COALESCE(SUM(total_tokens), 0) AS s FROM ai_usage WHERE workspace_id = ? AND ts >= ?")
+      .get(workspaceId, utcDayStartMs()) as { s: number } | undefined;
+    return row?.s ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Successful AI requests in the trailing 60s. Exported for the /api/meta usage meter.
+export function aiRequestsLastMinute(workspaceId: number): number {
+  try {
+    const row = db()
+      .prepare("SELECT COUNT(*) AS n FROM ai_usage WHERE workspace_id = ? AND ts >= ?")
+      .get(workspaceId, Date.now() - 60_000) as { n: number } | undefined;
+    return row?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function aiLimits(workspaceId: number = defaultWorkspaceId()): AiLimits {
+  return readLimits(workspaceId);
+}
+
+// Throws if the per-minute rate limit or daily token budget is exhausted. Returns the limits
+// so the caller (runChat) can reuse them for the max_tokens cap without a second DB read.
+function enforceLimits(workspaceId: number): AiLimits {
+  const limits = readLimits(workspaceId);
+  if (limits.rateLimitRpm > 0) {
+    const n = aiRequestsLastMinute(workspaceId);
+    if (n >= limits.rateLimitRpm) {
+      throw new Error(`AI rate limit reached (${limits.rateLimitRpm} requests/min) \u2014 retry shortly`);
+    }
+  }
+  if (limits.dailyTokenBudget > 0) {
+    const used = aiTokensUsedToday(workspaceId);
+    if (used >= limits.dailyTokenBudget) {
+      throw new Error(
+        `AI daily token budget exhausted (${used}/${limits.dailyTokenBudget} tokens) \u2014 resets at UTC midnight`,
+      );
+    }
+  }
+  return limits;
+}
+
+function recordUsage(
+  workspaceId: number,
+  task: AiTask,
+  model: string,
+  usage: OpenAI.CompletionUsage | undefined | null,
+): void {
+  try {
+    const pt = usage?.prompt_tokens ?? 0;
+    const ct = usage?.completion_tokens ?? 0;
+    const tt = usage?.total_tokens ?? pt + ct;
+    db()
+      .prepare(
+        "INSERT INTO ai_usage (workspace_id, ts, task, model, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(workspaceId, Date.now(), task, model, pt, ct, tt);
+  } catch {
+    // Usage logging must never break an otherwise-successful AI call.
+  }
+}
+
+type ChatParams = Omit<OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming, "model">;
+
+// Single chokepoint for every chat completion: enforce limits → inject max_tokens cap →
+// call the model → record token usage. Throws (before any spend) when a budget/rate cap is hit.
+async function runChat(
+  task: AiTask,
+  model: string,
+  params: ChatParams,
+  workspaceId?: number,
+): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  const wsId = workspaceId ?? defaultWorkspaceId();
+  const limits = enforceLimits(wsId);
+  const payload = { model, ...params } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
+  if (limits.maxTokensPerRequest > 0) payload.max_tokens = limits.maxTokensPerRequest;
+  const resp = await client(workspaceId).chat.completions.create(payload);
+  recordUsage(wsId, task, model, resp.usage);
+  return resp;
+}
+
 export function aiModelFor(task: AiTask, workspaceId?: number): string {
   const row = readTaskModels(workspaceId);
   const override =
@@ -265,14 +390,24 @@ function buildProgressUserText(input: ProgressInput): string {
   return lines.join("\n");
 }
 
-async function callChat(system: string, user: string, model: string, workspaceId?: number): Promise<string> {
-  const resp = await client(workspaceId).chat.completions.create({
+async function callChat(
+  task: AiTask,
+  system: string,
+  user: string,
+  model: string,
+  workspaceId?: number,
+): Promise<string> {
+  const resp = await runChat(
+    task,
     model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
+    {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    },
+    workspaceId,
+  );
   const text = resp.choices[0]?.message?.content ?? "";
   const cleaned = cleanMarkdown(text).trim();
   if (!cleaned) {
@@ -305,7 +440,7 @@ export async function summarizeIssue(
   workspaceId?: number,
 ): Promise<{ summary: string; model: string; effort: EffortRating | null }> {
   const model = aiModelFor("summary", workspaceId);
-  const raw = await callChat(SUMMARY_SYSTEM, buildIssueUserText(input), model, workspaceId);
+  const raw = await callChat("summary", SUMMARY_SYSTEM, buildIssueUserText(input), model, workspaceId);
   const { summary, effort } = splitEffort(raw);
   return { summary, model, effort };
 }
@@ -315,7 +450,7 @@ export async function analyzeProgress(
   workspaceId?: number,
 ): Promise<{ analysis: string; model: string }> {
   const model = aiModelFor("progress", workspaceId);
-  const analysis = await callChat(PROGRESS_SYSTEM, buildProgressUserText(input), model, workspaceId);
+  const analysis = await callChat("progress", PROGRESS_SYSTEM, buildProgressUserText(input), model, workspaceId);
   return { analysis, model };
 }
 
@@ -390,23 +525,31 @@ export async function rankPmActions(
   const user = buildPmActionsUserText(candidates);
   let text = "";
   try {
-    const resp = await client(workspaceId).chat.completions.create({
+    const resp = await runChat(
+      "progress",
       model,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: PM_ACTIONS_SYSTEM },
-        { role: "user", content: user },
-      ],
-    });
+      {
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: PM_ACTIONS_SYSTEM },
+          { role: "user", content: user },
+        ],
+      },
+      workspaceId,
+    );
     text = resp.choices[0]?.message?.content ?? "";
   } catch {
-    const resp = await client(workspaceId).chat.completions.create({
+    const resp = await runChat(
+      "progress",
       model,
-      messages: [
-        { role: "system", content: PM_ACTIONS_SYSTEM },
-        { role: "user", content: user },
-      ],
-    });
+      {
+        messages: [
+          { role: "system", content: PM_ACTIONS_SYSTEM },
+          { role: "user", content: user },
+        ],
+      },
+      workspaceId,
+    );
     text = resp.choices[0]?.message?.content ?? "";
   }
   return { ranking: parsePmActionsJson(text), model };
@@ -453,7 +596,7 @@ export async function accountRead(
   workspaceId?: number,
 ): Promise<{ content: string; model: string }> {
   const model = aiModelFor("summary", workspaceId);
-  const content = await callChat(ACCOUNT_READ_SYSTEM, buildAccountReadUserText(input), model, workspaceId);
+  const content = await callChat("summary", ACCOUNT_READ_SYSTEM, buildAccountReadUserText(input), model, workspaceId);
   return { content, model };
 }
 
@@ -553,23 +696,31 @@ export async function extractInsight(
   const user = buildExtractUserText(captured);
   let text = "";
   try {
-    const resp = await client(workspaceId).chat.completions.create({
+    const resp = await runChat(
+      "extract",
       model,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: EXTRACT_INSIGHT_SYSTEM },
-        { role: "user", content: user },
-      ],
-    });
+      {
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: EXTRACT_INSIGHT_SYSTEM },
+          { role: "user", content: user },
+        ],
+      },
+      workspaceId,
+    );
     text = resp.choices[0]?.message?.content ?? "";
   } catch {
-    const resp = await client(workspaceId).chat.completions.create({
+    const resp = await runChat(
+      "extract",
       model,
-      messages: [
-        { role: "system", content: EXTRACT_INSIGHT_SYSTEM },
-        { role: "user", content: user },
-      ],
-    });
+      {
+        messages: [
+          { role: "system", content: EXTRACT_INSIGHT_SYSTEM },
+          { role: "user", content: user },
+        ],
+      },
+      workspaceId,
+    );
     text = resp.choices[0]?.message?.content ?? "";
   }
   const extracted = parseExtractedJson(text);
@@ -676,23 +827,31 @@ export async function synthesizeMerge(
   const user = buildMergeUserText(input);
   let text = "";
   try {
-    const resp = await client(workspaceId).chat.completions.create({
+    const resp = await runChat(
+      "extract",
       model,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: MERGE_INSIGHTS_SYSTEM },
-        { role: "user", content: user },
-      ],
-    });
+      {
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: MERGE_INSIGHTS_SYSTEM },
+          { role: "user", content: user },
+        ],
+      },
+      workspaceId,
+    );
     text = resp.choices[0]?.message?.content ?? "";
   } catch {
-    const resp = await client(workspaceId).chat.completions.create({
+    const resp = await runChat(
+      "extract",
       model,
-      messages: [
-        { role: "system", content: MERGE_INSIGHTS_SYSTEM },
-        { role: "user", content: user },
-      ],
-    });
+      {
+        messages: [
+          { role: "system", content: MERGE_INSIGHTS_SYSTEM },
+          { role: "user", content: user },
+        ],
+      },
+      workspaceId,
+    );
     text = resp.choices[0]?.message?.content ?? "";
   }
   return { merged: parseMergedJson(text), model };

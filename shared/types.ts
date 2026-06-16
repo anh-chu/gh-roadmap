@@ -88,6 +88,10 @@ export interface WorkspaceConfig {
   aiModelSummary: string | null;
   aiModelProgress: string | null;
   aiModelExtract: string | null;
+  // AI cost controls (admin-only). 0 = disabled/unlimited for each.
+  aiMaxTokensPerRequest: number; // max_tokens cap injected into every completion
+  aiRateLimitRpm: number;        // max successful AI requests per rolling 60s (per-workspace)
+  aiDailyTokenBudget: number;    // max total tokens per UTC day; AI routes 503 once exhausted
   updatedAt: string;
 }
 
@@ -164,6 +168,14 @@ export interface MetaResponse {
   // True when GITHUB_PROJECT_NUMBER pins a project — drives status-as-projects
   // meta columns; false degrades the Board to the legacy is_todo/backlog model.
   projectPinned: boolean;
+  // AI cost meter. tokensUsedToday is the sum of total_tokens since UTC midnight;
+  // requestsLastMinute counts AI calls in the trailing 60s. The *Limit/*Budget/
+  // maxTokens fields mirror workspace_config (0 = unlimited/uncapped).
+  aiTokensUsedToday: number;
+  aiDailyTokenBudget: number;
+  aiRequestsLastMinute: number;
+  aiRateLimitRpm: number;
+  aiMaxTokensPerRequest: number;
 }
 
 // Full repo label + milestone catalog (all repo values, not just in-use).

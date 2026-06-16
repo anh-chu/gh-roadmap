@@ -29,6 +29,9 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
   aiModelSummary: null,
   aiModelProgress: null,
   aiModelExtract: null,
+  aiMaxTokensPerRequest: 0,
+  aiRateLimitRpm: 0,
+  aiDailyTokenBudget: 0,
   updatedAt: "",
 };
 
@@ -52,6 +55,9 @@ export interface ConfigPatch {
   aiModelSummary?: string | null;
   aiModelProgress?: string | null;
   aiModelExtract?: string | null;
+  aiMaxTokensPerRequest?: number;
+  aiRateLimitRpm?: number;
+  aiDailyTokenBudget?: number;
 }
 
 export interface UseConfigResult {
@@ -112,6 +118,9 @@ export function useConfig(onError?: (msg: string) => void): UseConfigResult {
         aiModelSummary: patch.aiModelSummary !== undefined ? patch.aiModelSummary : prev.aiModelSummary,
         aiModelProgress: patch.aiModelProgress !== undefined ? patch.aiModelProgress : prev.aiModelProgress,
         aiModelExtract: patch.aiModelExtract !== undefined ? patch.aiModelExtract : prev.aiModelExtract,
+        aiMaxTokensPerRequest: patch.aiMaxTokensPerRequest !== undefined ? patch.aiMaxTokensPerRequest : prev.aiMaxTokensPerRequest,
+        aiRateLimitRpm: patch.aiRateLimitRpm !== undefined ? patch.aiRateLimitRpm : prev.aiRateLimitRpm,
+        aiDailyTokenBudget: patch.aiDailyTokenBudget !== undefined ? patch.aiDailyTokenBudget : prev.aiDailyTokenBudget,
         updatedAt: new Date().toISOString(),
       };
       setConfig(optimistic);
