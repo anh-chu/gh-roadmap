@@ -301,6 +301,8 @@ export interface ProgressInput {
   masterFilter: { include: string[]; exclude: string[] };
   currentPeriod: { month: string; week: string };
   schedule: ScheduleHealth;
+  closedThisMonth: number;
+  closedLastMonth: number;
   roadmap: RoadmapTimeline;
 }
 
@@ -354,6 +356,7 @@ function buildProgressUserText(input: ProgressInput): string {
   lines.push(
     `Schedule: on-time ${onTime} · status ${sched.status} · committed ${sched.committed} · overdue ${sched.overdue} · due-now-not-moving ${sched.dueSoonAtRisk}`,
   );
+  lines.push(`Closed issues: this month ${input.closedThisMonth} · last month ${input.closedLastMonth}`);
   lines.push(`Sample size: ${input.sampleSize}`);
   lines.push(
     `Master filter: include=[${input.masterFilter.include.join(", ")}] exclude=[${input.masterFilter.exclude.join(", ")}]`,

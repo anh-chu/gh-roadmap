@@ -239,6 +239,22 @@ function confidenceLabel(c: number | null): string {
 function currentMonthKey(d = new Date()): string {
   return d.toISOString().slice(0, 7);
 }
+function closedInMonth(workspaceId: number, month: string): number {
+  const mf = getMasterFilter(workspaceId);
+  const rows = db()
+    .prepare("SELECT labels, closed_at FROM issues WHERE state = 'closed' AND closed_at IS NOT NULL")
+    .all() as Array<{ labels: string; closed_at: string }>;
+  let count = 0;
+  for (const row of rows) {
+    try {
+      if (row.closed_at.slice(0, 7) !== month) continue;
+      if (passesMasterFilter(JSON.parse(row.labels) as string[], mf)) count++;
+    } catch {
+      /* skip bad row */
+    }
+  }
+  return count;
+}
 function currentWeekKey(d = new Date()): string {
   const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const dayNum = dt.getUTCDay() || 7;
@@ -382,6 +398,9 @@ async function generateAndStoreProgress(workspaceId: number): Promise<AiProgress
   const flowDistribution = computeFlowDistribution(workspaceId);
   const schedule = computeScheduleHealth(workspaceId, mf);
   const roadmap = computeRoadmapTimeline(workspaceId, mf);
+  const nowD = new Date();
+  const thisMonth = currentMonthKey(nowD);
+  const lastMonth = currentMonthKey(new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth() - 1, 1)));
   const input: ProgressInput = {
     confidence,
     confidenceLabel: confidenceLabel(confidence),
@@ -391,6 +410,8 @@ async function generateAndStoreProgress(workspaceId: number): Promise<AiProgress
     masterFilter: mf,
     currentPeriod: { month: currentMonthKey(), week: currentWeekKey() },
     schedule,
+    closedThisMonth: closedInMonth(workspaceId, thisMonth),
+    closedLastMonth: closedInMonth(workspaceId, lastMonth),
     roadmap,
   };
   const { analysis, model } = await analyzeProgress(input, workspaceId);
