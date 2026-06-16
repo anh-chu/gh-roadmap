@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../db.js";
+import { q } from "../db.js";
 import { computeAtRisk, computeConfidence, computeScheduleHealth } from "../health.js";
 import { backfillHealthSnapshots } from "../healthBackfill.js";
 import type {
@@ -56,8 +56,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     async (req): Promise<HealthSnapshotSummary[]> => {
       const raw = Number(req.query.days ?? 30);
       const days = Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), 365) : 30;
-      const rows = db()
-        .prepare(
+      const rows = q(
           `SELECT snapshot_date, confidence, on_time, sample_size, at_risk_json
            FROM health_snapshots
            WHERE workspace_id = ?
@@ -93,8 +92,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       if (!DATE_RE.test(date)) {
         return reply.code(400).send({ error: "date must be YYYY-MM-DD" });
       }
-      const row = db()
-        .prepare(
+      const row = q(
           `SELECT snapshot_date, confidence, sample_size, at_risk_json, computed_at
            FROM health_snapshots WHERE workspace_id = ? AND snapshot_date = ?`,
         )

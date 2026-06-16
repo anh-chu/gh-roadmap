@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { db, getKv, setKv } from "../db.js";
+import { q, getKv, setKv } from "../db.js";
 import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels, listRepoMilestones, isAppAuth } from "../github.js";
 import type { BucketingField, BucketsInfo } from "../../../shared/types.js";
 import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterFilter.js";
@@ -12,8 +12,7 @@ function computeBuckets(workspaceId: number, field: BucketingField, value: strin
   if (field === "none") return { field, value, options: [] };
 
   const mf = getMasterFilter(workspaceId);
-  const rows = (db()
-    .prepare("SELECT labels, assignee, milestone FROM issues")
+  const rows = (q("SELECT labels, assignee, milestone FROM issues")
     .all() as IssueScanRow[])
     .filter((r) => passesMasterFilter(JSON.parse(r.labels) as string[], mf));
 
@@ -57,7 +56,7 @@ function openHistoryWeekly(workspaceId: number): number[] {
   const series: number[] = [];
   const now = Date.now();
   const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  const stmt = db().prepare(
+  const stmt = q(
     `SELECT COUNT(*) AS n FROM issues i
      WHERE created_at IS NOT NULL
        AND created_at <= ?
@@ -79,8 +78,7 @@ function closedInMonth(workspaceId: number, month: string): number {
   const mf = masterFilterSql(getMasterFilter(workspaceId));
   const scope = mf ? ` AND ${mf.sql}` : "";
   const scopeParams = mf ? mf.params : [];
-  const row = db()
-    .prepare(
+  const row = q(
       `SELECT COUNT(*) AS n FROM issues i
        WHERE state = 'closed'
          AND closed_at IS NOT NULL
@@ -94,8 +92,7 @@ function scopedCount(workspaceId: number, state: "open" | "closed"): number {
   const mf = masterFilterSql(getMasterFilter(workspaceId));
   const scope = mf ? ` AND ${mf.sql}` : "";
   const scopeParams = mf ? mf.params : [];
-  const row = db()
-    .prepare(`SELECT COUNT(*) AS n FROM issues i WHERE state = ?${scope}`)
+  const row = q(`SELECT COUNT(*) AS n FROM issues i WHERE state = ?${scope}`)
     .get(state, ...scopeParams) as { n: number };
   return row.n;
 }
@@ -127,8 +124,7 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
     const open = scopedCount(workspaceId, "open");
     const closed = scopedCount(workspaceId, "closed");
 
-    const cfg = db()
-      .prepare("SELECT bucketing_field, bucketing_value FROM workspace_config WHERE id = ?")
+    const cfg = q("SELECT bucketing_field, bucketing_value FROM workspace_config WHERE id = ?")
       .get(workspaceId) as { bucketing_field: BucketingField; bucketing_value: string } | undefined;
     const field: BucketingField = cfg?.bucketing_field ?? "label";
     const value = cfg?.bucketing_value ?? "area";
@@ -138,8 +134,7 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
     const limits = aiLimits(workspaceId);
 
     // webhookEventsToday is a sync_log metric, not an issue metric — leave unscoped.
-    const webhookEventsToday = (db()
-      .prepare("SELECT COUNT(*) AS n FROM sync_log WHERE date(processed_at) = date('now')")
+    const webhookEventsToday = (q("SELECT COUNT(*) AS n FROM sync_log WHERE date(processed_at) = date('now')")
       .get() as { n: number }).n;
 
     const now = new Date();

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../db.js";
+import { q } from "../db.js";
 import { getMasterFilter, masterFilterSql } from "../masterFilter.js";
 import { computeFlowState, type FlowInput, type FlowThresholdsResolved } from "../flow.js";
 import type { FlowResultMap } from "../../../shared/types.js";
@@ -68,8 +68,7 @@ interface FlowRule {
 
 export async function flowRulesRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/flow/rules", async (req) => {
-    const t = db()
-      .prepare(
+    const t = q(
         "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = ?",
       )
       .get(req.workspaceId) as ThresholdRow | undefined;
@@ -140,8 +139,7 @@ export async function flowRulesRoutes(app: FastifyInstance): Promise<void> {
 export async function flowRoutes(app: FastifyInstance): Promise<void> {
   await flowRulesRoutes(app);
   app.get("/api/flow", async (req) => {
-    const t = db()
-      .prepare(
+    const t = q(
         "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days FROM workspace_config WHERE id = ?",
       )
       .get(req.workspaceId) as ThresholdRow | undefined;
@@ -160,31 +158,25 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     const scope = mf ? ` WHERE ${mf.sql}` : "";
     const scopeParams = mf ? mf.params : [];
 
-    const issues = db()
-      .prepare(
+    const issues = q(
         `SELECT i.number, i.state, i.created_at, i.updated_at, i.assignee FROM issues i${scope}`,
       )
       .all(...scopeParams) as IssueRow[];
 
     // Build per-issue indexes — fetch all relevant tables once, group in JS.
-    const pulls = db()
-      .prepare(
+    const pulls = q(
         `SELECT number, state, merged, merged_at, is_draft, last_commit_at, linked_issues FROM pulls`,
       )
       .all() as PullRow[];
-    const reviews = db()
-      .prepare(`SELECT pull_number, state, submitted_at, author FROM pull_reviews`)
+    const reviews = q(`SELECT pull_number, state, submitted_at, author FROM pull_reviews`)
       .all() as ReviewRow[];
-    const checks = db()
-      .prepare(`SELECT pull_number, status, conclusion FROM pull_checks`)
+    const checks = q(`SELECT pull_number, status, conclusion FROM pull_checks`)
       .all() as CheckRow[];
-    const commentAgg = db()
-      .prepare(
+    const commentAgg = q(
         `SELECT issue_number, COUNT(*) AS cnt, MAX(created_at) AS last_at FROM comments GROUP BY issue_number`,
       )
       .all() as CommentAgg[];
-    const events = db()
-      .prepare(`SELECT issue_number, event_type, created_at FROM issue_events`)
+    const events = q(`SELECT issue_number, event_type, created_at FROM issue_events`)
       .all() as EventRow[];
 
     const checksByPull = new Map<number, CheckRow>();

@@ -1,4 +1,4 @@
-import { db, getKv } from "./db.js";
+import { q, getKv } from "./db.js";
 import { getMasterFilter, masterFilterSql, type MasterFilter } from "./masterFilter.js";
 import { computeFlowState, type FlowInput, type FlowThresholdsResolved } from "./flow.js";
 import { detectAllPredictive, type PredictiveThresholds } from "./predictive.js";
@@ -34,8 +34,7 @@ function loadEstimateEffort(nums: number[]): Map<number, EffortRating> {
   const out = new Map<number, EffortRating>();
   if (nums.length === 0) return out;
   const ph = nums.map(() => "?").join(",");
-  const rows = db()
-    .prepare(`SELECT issue_number, effort FROM ai_summaries WHERE issue_number IN (${ph})`)
+  const rows = q(`SELECT issue_number, effort FROM ai_summaries WHERE issue_number IN (${ph})`)
     .all(...nums) as Array<{ issue_number: number; effort: string | null }>;
   for (const r of rows) {
     if (r.effort && VALID_EFFORT.has(r.effort)) out.set(r.issue_number, r.effort as EffortRating);
@@ -47,16 +46,14 @@ function loadEstimateEffort(nums: number[]): Map<number, EffortRating> {
 const MOVING_STATES = new Set<FlowState>(["shipping", "in-review", "in-code"]);
 
 function loadGranularity(workspaceId: number): RangeGranularity {
-  const r = db()
-    .prepare("SELECT range_granularity FROM workspace_config WHERE id = ?")
+  const r = q("SELECT range_granularity FROM workspace_config WHERE id = ?")
     .get(workspaceId) as { range_granularity?: string } | undefined;
   const v = r?.range_granularity;
   return v === "week" || v === "quarter" ? v : "month";
 }
 
 function loadRangeConfig(workspaceId: number): { granularity: RangeGranularity; count: number; offset: number } {
-  const r = db()
-    .prepare("SELECT range_granularity, range_count, range_offset FROM workspace_config WHERE id = ?")
+  const r = q("SELECT range_granularity, range_count, range_offset FROM workspace_config WHERE id = ?")
     .get(workspaceId) as { range_granularity?: string; range_count?: number; range_offset?: number } | undefined;
   const g = r?.range_granularity;
   return {
@@ -140,8 +137,7 @@ interface ThresholdRow {
 }
 
 function loadThresholds(workspaceId: number): { flow: FlowThresholdsResolved; todoStaleDays: number } {
-  const t = db()
-    .prepare(
+  const t = q(
       "SELECT flow_shipping_hours, flow_review_days, flow_code_days, flow_discussion_days, flow_stall_days, flow_cold_days, flow_fresh_days, todo_stale_days FROM workspace_config WHERE id = ?",
     )
     .get(workspaceId) as ThresholdRow | undefined;
@@ -171,8 +167,7 @@ function loadIssues(workspaceId: number, mf: MasterFilter, asOf?: string): Issue
       "(i.created_at IS NULL OR i.created_at <= ?) AND (i.closed_at IS NULL OR i.closed_at > ?)";
     params.unshift(asOf, asOf);
   }
-  return db()
-    .prepare(
+  return q(
       `SELECT i.number, i.title, i.state, i.assignee, i.created_at, i.updated_at, i.closed_at,
               i.labels, m.planned_month, m.planned_week, m.is_todo, m.app_updated_at
        FROM issues i
@@ -201,47 +196,41 @@ function loadJoins(asOf?: string): JoinedData {
     : `SELECT number, state, merged, merged_at, is_draft, last_commit_at, linked_issues FROM pulls`;
   const pulls = (
     asOf
-      ? db().prepare(pullsSql).all(asOf)
-      : db().prepare(pullsSql).all()
+      ? q(pullsSql).all(asOf)
+      : q(pullsSql).all()
   ) as PullRow[];
   const reviews = (
     asOf
-      ? db()
-          .prepare(
+      ? q(
             `SELECT pull_number, state, submitted_at, author FROM pull_reviews WHERE submitted_at <= ?`,
           )
           .all(asOf)
-      : db()
-          .prepare(`SELECT pull_number, state, submitted_at, author FROM pull_reviews`)
+      : q(`SELECT pull_number, state, submitted_at, author FROM pull_reviews`)
           .all()
   ) as ReviewRow[];
   // approximate: pull_checks holds only current rollup, no historic series.
   // For historic snapshots we drop check rollups entirely.
   const checks: CheckRow[] = asOf
     ? []
-    : (db().prepare(`SELECT pull_number, status FROM pull_checks`).all() as CheckRow[]);
+    : (q(`SELECT pull_number, status FROM pull_checks`).all() as CheckRow[]);
   const commentAgg = (
     asOf
-      ? db()
-          .prepare(
+      ? q(
             `SELECT issue_number, COUNT(*) AS cnt, MAX(created_at) AS last_at FROM comments WHERE created_at <= ? GROUP BY issue_number`,
           )
           .all(asOf)
-      : db()
-          .prepare(
+      : q(
             `SELECT issue_number, COUNT(*) AS cnt, MAX(created_at) AS last_at FROM comments GROUP BY issue_number`,
           )
           .all()
   ) as CommentAgg[];
   const events = (
     asOf
-      ? db()
-          .prepare(
+      ? q(
             `SELECT issue_number, event_type, created_at FROM issue_events WHERE created_at <= ?`,
           )
           .all(asOf)
-      : db()
-          .prepare(`SELECT issue_number, event_type, created_at FROM issue_events`)
+      : q(`SELECT issue_number, event_type, created_at FROM issue_events`)
           .all()
   ) as EventRow[];
 
@@ -555,8 +544,7 @@ export function computeRoadmapTimeline(
   const sql = masterFilterSql(mf);
   const scope = sql ? ` AND ${sql.sql}` : "";
   const params = sql ? sql.params : [];
-  const rows = db()
-    .prepare(
+  const rows = q(
       `SELECT i.number, i.state, m.planned_month, m.planned_week
        FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
        WHERE (m.planned_month IS NOT NULL OR m.planned_week IS NOT NULL)${scope}`,
@@ -811,8 +799,7 @@ interface PredictiveThresholdRow {
   predict_reply_overdue_hours: number;
 }
 function loadPredictiveThresholds(workspaceId: number): PredictiveThresholds {
-  const r = db()
-    .prepare(
+  const r = q(
       "SELECT predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days, predict_promise_confidence_min, predict_reply_overdue_hours FROM workspace_config WHERE id = ?",
     )
     .get(workspaceId) as PredictiveThresholdRow | undefined;
@@ -842,8 +829,7 @@ export function upsertSnapshot(workspaceId: number): {
   const onTime = computeScheduleHealth(workspaceId, mf).onTime;
   const date = utcDateKey();
   const computedAt = new Date().toISOString();
-  db()
-    .prepare(
+  q(
       `INSERT INTO health_snapshots(workspace_id, snapshot_date, confidence, sample_size, at_risk_json, computed_at, on_time)
        VALUES(?,?,?,?,?,?,?)
        ON CONFLICT(workspace_id, snapshot_date) DO UPDATE SET

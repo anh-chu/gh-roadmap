@@ -58,6 +58,13 @@ export function initDb(path: string): Database.Database {
   // Multi-user shared instance: WAL lets readers not block the single writer; the
   // busy_timeout makes a concurrent writer wait briefly instead of throwing SQLITE_BUSY.
   db.pragma("busy_timeout = 5000");
+  // synchronous=NORMAL is crash-safe under WAL (only the last txn can be lost on an OS
+  // crash, never corruption) and drops an fsync per write, so a writer holds the global
+  // write lock for less time, so fewer writers queue under concurrent use.
+  db.pragma("synchronous = NORMAL");
+  db.pragma("cache_size = -16000"); // ~16MB page cache per connection
+  db.pragma("mmap_size = 268435456"); // 256MB memory-mapped reads
+  db.pragma("temp_store = MEMORY");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS issues (
@@ -693,6 +700,25 @@ export function initDb(path: string): Database.Database {
 export function db(): Database.Database {
   if (!_db) throw new Error("db not initialised — call initDb() first");
   return _db;
+}
+
+// Prepared-statement cache. better-sqlite3 compiles SQL on every .prepare() with no
+// internal caching, so re-preparing the same query per request wastes CPU under load.
+// Statements are bound to a connection, so the cache is dropped if the db reopens.
+const _stmtCache = new Map<string, Database.Statement>();
+let _stmtCacheConn: Database.Database | null = null;
+export function q(sql: string): Database.Statement {
+  const conn = db();
+  if (_stmtCacheConn !== conn) {
+    _stmtCache.clear();
+    _stmtCacheConn = conn;
+  }
+  let s = _stmtCache.get(sql);
+  if (!s) {
+    s = conn.prepare(sql);
+    _stmtCache.set(sql, s);
+  }
+  return s;
 }
 
 export function setKv(key: string, value: string): void {

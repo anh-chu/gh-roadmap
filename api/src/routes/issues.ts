@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../db.js";
+import { q } from "../db.js";
 import { createIssue, getRepoSlug, updateIssue, type IssueCreate, type IssuePatch } from "../github.js";
 import { runGithubWrite } from "../githubWriteIdentity.js";
 import { upsertIssue } from "../sync.js";
@@ -95,8 +95,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
           const created = await createIssue(octo, { ...req.body, title, labels });
           upsertIssue(created);
           const pj = pinnedProjectJoin();
-          const row = db()
-            .prepare(
+          const row = q(
               `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
                FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
                ${pj.join}
@@ -117,8 +116,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const where = mf ? `WHERE ${mf.sql}` : "";
     const params = mf ? mf.params : [];
     const pj = pinnedProjectJoin();
-    const rows = db()
-      .prepare(
+    const rows = q(
         `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at,
                 m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
          FROM issues i
@@ -160,7 +158,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       // so routine sync churn (comments, label/state changes) never triggers a false 409.
       const { baseBody, ...patch } = req.body;
       if (patch.body !== undefined && baseBody !== undefined) {
-        const cur = db().prepare("SELECT body FROM issues WHERE number = ?").get(num) as
+        const cur = q("SELECT body FROM issues WHERE number = ?").get(num) as
           | { body: string | null }
           | undefined;
         if (cur && (cur.body ?? "") !== (baseBody ?? "")) {
@@ -175,8 +173,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
           const updated = await updateIssue(octo, num, patch);
           upsertIssue(updated);
           const pj = pinnedProjectJoin();
-          const row = db()
-            .prepare(
+          const row = q(
               `SELECT i.*, m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
                FROM issues i LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
                ${pj.join}
@@ -216,7 +213,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       const num = Number(req.params.num);
       if (!Number.isFinite(num)) return reply.code(400).send({ error: "invalid issue number" });
 
-      const exists = db().prepare("SELECT 1 FROM issues WHERE number = ?").get(num);
+      const exists = q("SELECT 1 FROM issues WHERE number = ?").get(num);
       if (!exists) return reply.code(404).send({ error: "issue not found" });
 
       const WEEK_RE = /^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/;
@@ -225,7 +222,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const workspaceId = req.workspaceId;
-      const current = db().prepare("SELECT * FROM roadmap_meta WHERE workspace_id = ? AND issue_number = ?").get(workspaceId, num) as
+      const current = q("SELECT * FROM roadmap_meta WHERE workspace_id = ? AND issue_number = ?").get(workspaceId, num) as
         | { planned_month: string | null; planned_week: string | null; roadmap_notes: string | null; position: number | null; is_todo: number | null }
         | undefined;
 
@@ -256,8 +253,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
         is_todo,
       };
 
-      db()
-        .prepare(
+      q(
           `INSERT INTO roadmap_meta(workspace_id,issue_number,planned_month,planned_week,roadmap_notes,position,is_todo,app_updated_at)
            VALUES(?,?,?,?,?,?,?,?)
            ON CONFLICT(workspace_id,issue_number) DO UPDATE SET
