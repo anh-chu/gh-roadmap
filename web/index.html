@@ -4,10 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Roadmap · gh-mirror</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#1a1916" />
     <script>
       // Pre-paint theme hint (mirror of the per-user server value, kept in localStorage by
       // useTheme) — applied before CSS/React so a dark-mode user never sees a white flash.
-      try { if (localStorage.getItem("theme") === "dark") document.documentElement.setAttribute("data-theme", "dark"); } catch (e) {}
+      try {
+        if (localStorage.getItem("theme") === "dark")
+          document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
