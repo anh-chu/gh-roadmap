@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BucketingField, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import { buildColumns } from "../lib/timeRange";
 import { canEdit } from "../lib/role";
-import { FlowLegendPopover } from "./FlowLegendPopover";
+import { HelpPopover } from "./HelpPopover";
 
 export type FilterKey = "all" | "mine";
 export type TabKey = "roadmap" | "list" | "kanban" | "insights" | "accounts" | "progress";
@@ -311,7 +311,7 @@ export function Toolbar(props: ToolbarProps): JSX.Element {
             Progress
           </button>
         </div>
-        <FlowLegendPopover />
+        <HelpPopover tab={tab} />
         {showRoadmapControls && <GroupByDropdown config={config} onChange={onConfigChange} />}
         {showRoadmapControls && <RangeControl config={config} onChange={onConfigChange} />}
       </div>
