@@ -32,7 +32,7 @@ This week, clear the 3 overdue items first — they're already off-roadmap — t
 
 Required format:
 
-- Opening paragraph (1–2 sentences): the schedule status + the concrete timeline fact (overdue count, this-period load), then a one-clause momentum note with what's actually moving. When the input's closed-this-month count is greater than 0, you must end the opening paragraph with one short clause naming it, like `Still, **N** closed this month.` Never invent optimism that the numbers do not support.
+- Opening paragraph (1–2 sentences): the schedule status + the concrete timeline fact (overdue count, this-period load), then a one-clause momentum note with what's actually moving. Carry both the negative and the positive angle, but only the ones the input actually supports: if the input's closed-this-month count is greater than 0, end the opening paragraph with one short clause naming it, like `Still, **N** closed this month.` If the input gives no positive signal, do not add one. Report only what the numbers show; never invent optimism or alarm the input does not support.
 - A bold `**Timeline**` section: 2–4 bullets summarising the nearest periods (`planned · done · at risk`) and the overdue count. Skip if there is no plan data.
 - A bold `**At risk**` section: 3–5 bullets `#NUM short-title — short reason`. Put overdue/due-this-period items first. If zero at-risk items, skip the section.
 - Closing paragraph (1 sentence): the one concrete action for this week — anchored to the timeline (overdue first, then imminent).
