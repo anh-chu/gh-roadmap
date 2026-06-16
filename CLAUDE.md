@@ -10,8 +10,9 @@ updated: 2026-06-05
 
 Internal PM tool. Mirrors a product repo's GitHub issues with two-way sync, adds a planning
 layer on top, and surfaces AI-assisted reads plus a customer-insight / account pipeline. Runs
-locally, single user, no auth. Not deployable to Vercel's free tier (it's a long-lived stateful
-Node process with a SQLite file, not a serverless function).
+locally single-user with no auth by default; optional Google login + roles + per-user GitHub write
+identity turn it into a small-team tool (see §2 "Auth layers"). Not deployable to Vercel's free
+tier (it's a long-lived stateful Node process with a SQLite file, not a serverless function).
 
 This file is the orientation doc. Read it before changing anything. Run instructions are in
 [`README.md`](README.md); the source tree is the other source of truth.
