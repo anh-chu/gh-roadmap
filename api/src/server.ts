@@ -4,6 +4,8 @@ import fastifyStatic from "@fastify/static";
 import fastifyCookie from "@fastify/cookie";
 import middie from "@fastify/middie";
 import cors from "@fastify/cors";
+import compress from "@fastify/compress";
+import { constants as zlibConstants } from "node:zlib";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -89,6 +91,19 @@ async function main(): Promise<void> {
   await app.register(cors, { origin: true });
   await app.register(fastifyCookie);
 
+  // Response compression — the main remote-latency win. localhost is fast because the
+  // bundle + JSON never cross a slow link; over a remote deployment the uncompressed
+  // JS bundle and /api/issues payload (full issue bodies) dominate load time. Registered
+  // before the routes and @fastify/static so the global onSend hook covers both dynamic
+  // JSON and the static asset stream. Brotli quality is dialed down from the node default
+  // (11, slow) to 5 so dynamic responses compress well without adding CPU latency.
+  await app.register(compress, {
+    global: true,
+    threshold: 1024,
+    zlibOptions: { level: 6 },
+    brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } },
+  });
+
   if (authEnabled()) {
     app.log.info("Google OAuth login enabled — app requires sign-in");
   } else {
@@ -167,10 +182,24 @@ async function main(): Promise<void> {
     const webDist =
       process.env.WEB_DIST ??
       resolve(__dirname, "..", "..", "..", "..", "web", "dist");
+    // Vite content-hashes asset filenames, so /assets/* can be cached immutably — a
+      // repeat remote load skips re-downloading the bundle entirely.
     await app.register(fastifyStatic, {
       root: webDist,
       prefix: "/",
       decorateReply: false,
+      maxAge: "30d",
+      immutable: true,
+    });
+    // The app shell (index.html) must always revalidate, or a redeploy's new hashed-asset
+    // refs would never be picked up. @fastify/send writes its own Cache-Control after any
+    // setHeaders callback, so override it here in onSend (runs last) keyed on content-type.
+    app.addHook("onSend", async (_req, reply, payload) => {
+      const ct = reply.getHeader("content-type");
+      if (typeof ct === "string" && ct.includes("text/html")) {
+        reply.header("cache-control", "no-cache");
+      }
+      return payload;
     });
   } else {
     // Dev: mount vite as middleware on this same port. HMR, source maps, single URL.

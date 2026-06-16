@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { ApiIssue, BucketingField, Issue } from "../../../shared/types";
 import { fromApi } from "../../../shared/types";
 import {
@@ -97,34 +97,74 @@ export interface MutationApi {
 
 export interface UseIssuesResult extends State, MutationApi {}
 
-export function useIssues(onError: (msg: string) => void): UseIssuesResult {
-  const [state, dispatch] = useReducer(reducer, {
-    issues: [],
-    loading: true,
-    loaded: false,
-    errorMessage: null,
-  });
+// Stale-while-revalidate cache: paint the board instantly from the last-known issue
+// list on a cold reload, then revalidate in the background. The cache is real prior
+// data (never mock), versioned so a shape change invalidates it safely.
+const CACHE_KEY = "ghr:issues:v1";
+function loadCache(): Issue[] | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? (arr as Issue[]) : null;
+  } catch {
+    return null;
+  }
+}
+function saveCache(issues: Issue[]): void {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(issues));
+  } catch {
+    /* quota / disabled storage — non-fatal */
+  }
+}
 
-  const refresh = useCallback(async (): Promise<void> => {
-    dispatch({ type: "loading" });
+function initState(): State {
+  const cached = loadCache();
+  if (cached) return { issues: cached, loading: false, loaded: true, errorMessage: null };
+  return { issues: [], loading: true, loaded: false, errorMessage: null };
+}
+
+export function useIssues(onError: (msg: string) => void): UseIssuesResult {
+  const [state, dispatch] = useReducer(reducer, undefined, initState);
+
+  // Capture whether we primed from cache at mount: the first fetch is then a silent
+  // background revalidate (no "Loading…" flash) instead of a cold load.
+  const primedRef = useRef(state.loaded);
+
+  // silent=true revalidates without blanking the board to the loading skeleton.
+  const refresh = useCallback(async (silent = false): Promise<void> => {
+    if (!silent) dispatch({ type: "loading" });
     try {
       const data = await fetchIssues();
-      dispatch({ type: "load", issues: data.map(fromApi) });
+      const issues = data.map(fromApi);
+      saveCache(issues);
+      dispatch({ type: "load", issues });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load issues";
-      dispatch({ type: "error", message: msg });
+      // Keep the cached board on a background revalidate failure; only surface the
+      // error screen on a truly cold load with nothing to show.
+      if (silent) onError(`Failed: ${msg}`);
+      else dispatch({ type: "error", message: msg });
     }
-  }, []);
+  }, [onError]);
 
   useEffect(() => {
-    void refresh();
+    void refresh(primedRef.current);
   }, [refresh]);
+
+  // Keep the SWR cache in sync with optimistic mutations too, so a reload right after
+  // an edit paints the edited board (background revalidate reconciles with the server).
+  useEffect(() => {
+    if (state.loaded) saveCache(state.issues);
+  }, [state.issues, state.loaded]);
 
   // Shared instance: another teammate's edits won't push to this client. Refetch when
   // the tab regains focus so a returning user sees current data instead of a stale board.
+  // Always silent — a focus refetch must never flash "Loading…" over present data.
   useEffect(() => {
     const onFocus = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void refresh(true);
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
