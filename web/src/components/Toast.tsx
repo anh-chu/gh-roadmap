@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export interface ToastController {
   show(msg: string): void;
@@ -20,12 +20,11 @@ export function useToast(): { node: JSX.Element; controller: ToastController } {
     </div>
   );
 
-  const controller: ToastController = {
-    show(m: string): void {
-      setMsg(m || "Saved");
-      setVisible(true);
-    },
-  };
+  const show = useCallback((m: string): void => {
+    setMsg(m || "Saved");
+    setVisible(true);
+  }, []);
+  const controller = useMemo<ToastController>(() => ({ show }), [show]);
 
   return { node, controller };
 }
