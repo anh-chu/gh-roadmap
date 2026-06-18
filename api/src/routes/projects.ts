@@ -160,6 +160,18 @@ async function refreshOne(num: number): Promise<ProjectRow | null> {
   return getProjectRow(num) ?? null;
 }
 
+// Stale-while-revalidate: refresh a board in the background, de-duped so concurrent
+// reads don't stack GitHub round-trips. Failures are logged, never surfaced (the
+// caller already served the cached board).
+const refreshing = new Set<number>();
+function backgroundRefresh(app: FastifyInstance, num: number): void {
+  if (refreshing.has(num)) return;
+  refreshing.add(num);
+  void refreshOne(num)
+    .catch((err) => app.log.warn({ err, num }, "background project refresh failed"))
+    .finally(() => refreshing.delete(num));
+}
+
 // Reconcile hook: force-refresh the env-pinned project mirror (no 60s freshness
 // gate — that gate only guards interactive Kanban paths). Silent no-op when
 // GITHUB_PROJECT_NUMBER is unset. Also guarantees the projects row (node id +
@@ -271,16 +283,20 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
     const pin = projectFilter();
     if (pin !== null && num !== pin) return reply.code(404).send({ error: "project not in pinned scope" });
     let row = getProjectRow(num);
-    if (!row || !isFresh(row)) {
+    if (!row) {
+      // Cold: nothing cached, must block on GitHub.
       try {
         const refreshed = await refreshOne(num);
         if (!refreshed) return reply.code(404).send({ error: "project not found" });
         row = refreshed;
       } catch (err) {
         app.log.error({ err }, "project refresh failed");
-        if (!row) return reply.code(502).send({ error: "github project fetch failed" });
-        // Fall through with stale cache.
+        return reply.code(502).send({ error: "github project fetch failed" });
       }
+    } else if (!isFresh(row)) {
+      // Stale: serve the cached board instantly, revalidate in the background so the
+      // Kanban tab never blocks on a GitHub round-trip. The client SWR-revalidates next open.
+      void backgroundRefresh(app, num);
     }
     return projectFull(row, req.workspaceId);
   });
