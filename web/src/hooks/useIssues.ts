@@ -10,6 +10,7 @@ import {
   postComment,
   type IssueCreatePayload,
 } from "../lib/api";
+import { loadCache, saveCache } from "../lib/swrCache";
 
 interface State {
   issues: Issue[];
@@ -101,27 +102,10 @@ export interface UseIssuesResult extends State, MutationApi {}
 // list on a cold reload, then revalidate in the background. The cache is real prior
 // data (never mock), versioned so a shape change invalidates it safely.
 const CACHE_KEY = "ghr:issues:v1";
-function loadCache(): Issue[] | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const arr = JSON.parse(raw) as unknown;
-    return Array.isArray(arr) ? (arr as Issue[]) : null;
-  } catch {
-    return null;
-  }
-}
-function saveCache(issues: Issue[]): void {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(issues));
-  } catch {
-    /* quota / disabled storage — non-fatal */
-  }
-}
 
 function initState(): State {
-  const cached = loadCache();
-  if (cached) return { issues: cached, loading: false, loaded: true, errorMessage: null };
+  const cached = loadCache<Issue[]>(CACHE_KEY);
+  if (Array.isArray(cached)) return { issues: cached, loading: false, loaded: true, errorMessage: null };
   return { issues: [], loading: true, loaded: false, errorMessage: null };
 }
 
@@ -138,7 +122,7 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
     try {
       const data = await fetchIssues();
       const issues = data.map(fromApi);
-      saveCache(issues);
+      saveCache(CACHE_KEY, issues);
       dispatch({ type: "load", issues });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load issues";
@@ -156,7 +140,7 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
   // Keep the SWR cache in sync with optimistic mutations too, so a reload right after
   // an edit paints the edited board (background revalidate reconciles with the server).
   useEffect(() => {
-    if (state.loaded) saveCache(state.issues);
+    if (state.loaded) saveCache(CACHE_KEY, state.issues);
   }, [state.issues, state.loaded]);
 
   // Shared instance: another teammate's edits won't push to this client. Refetch when

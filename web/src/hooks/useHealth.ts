@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HealthHistorical, HealthLive, HealthSnapshotSummary } from "../../../shared/types";
 import { fetchHealth, fetchHealthHistory, fetchHealthSnapshot } from "../lib/api";
+import { loadCache, saveCache } from "../lib/swrCache";
+
+// SWR: keep the Progress headline painted from the last-known live snapshot on a cold reload.
+const LIVE_KEY = "ghr:health-live:v1";
 
 interface UseHealth {
   live: HealthLive | null;
@@ -14,11 +18,11 @@ interface UseHealth {
 const LIVE_POLL_MS = 60_000;
 
 export function useHealth(): UseHealth {
-  const [live, setLive] = useState<HealthLive | null>(null);
+  const [live, setLive] = useState<HealthLive | null>(() => loadCache<HealthLive>(LIVE_KEY));
   const [history, setHistory] = useState<HealthSnapshotSummary[]>([]);
   const [snapshot, setSnapshot] = useState<HealthHistorical | null>(null);
   const [scrubbedDate, setScrubbedDate] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => loadCache<HealthLive>(LIVE_KEY) === null);
   const snapshotCache = useRef<Map<string, HealthHistorical>>(new Map());
 
   useEffect(() => {
@@ -26,7 +30,10 @@ export function useHealth(): UseHealth {
     const runLive = async (): Promise<void> => {
       try {
         const r = await fetchHealth();
-        if (!cancelled) setLive(r);
+        if (!cancelled) {
+          saveCache(LIVE_KEY, r);
+          setLive(r);
+        }
       } catch {
         /* keep last good state */
       } finally {

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { BriefChanges, BriefSnapshot } from "../../../shared/types";
 import { fetchBriefChanges, fetchBriefSnapshot, postBriefMarkSeen } from "../lib/api";
+import { loadCache, saveCache } from "../lib/swrCache";
+
+const SNAP_KEY = "ghr:brief-snapshot:v1";
+const CHANGES_KEY = "ghr:brief-changes:v1";
 
 interface UseBrief {
   snapshot: BriefSnapshot | null;
@@ -12,8 +16,8 @@ interface UseBrief {
 }
 
 export function useBrief(active: boolean): UseBrief {
-  const [snapshot, setSnapshot] = useState<BriefSnapshot | null>(null);
-  const [changes, setChanges] = useState<BriefChanges | null>(null);
+  const [snapshot, setSnapshot] = useState<BriefSnapshot | null>(() => loadCache<BriefSnapshot>(SNAP_KEY));
+  const [changes, setChanges] = useState<BriefChanges | null>(() => loadCache<BriefChanges>(CHANGES_KEY));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +26,8 @@ export function useBrief(active: boolean): UseBrief {
     setError(null);
     try {
       const [snap, ch] = await Promise.all([fetchBriefSnapshot(), fetchBriefChanges()]);
+      saveCache(SNAP_KEY, snap);
+      saveCache(CHANGES_KEY, ch);
       setSnapshot(snap);
       setChanges(ch);
     } catch (e) {
@@ -35,6 +41,7 @@ export function useBrief(active: boolean): UseBrief {
     try {
       await postBriefMarkSeen();
       const ch = await fetchBriefChanges();
+      saveCache(CHANGES_KEY, ch);
       setChanges(ch);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to mark seen");

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Pull } from "../../../shared/types";
 import { fetchPulls } from "../lib/api";
+import { loadCache, saveCache } from "../lib/swrCache";
+
+const CACHE_KEY = "ghr:pulls:v1";
 
 interface UsePulls {
   pulls: Pull[];
@@ -10,8 +13,8 @@ interface UsePulls {
 }
 
 export function usePulls(intervalMs = 60_000): UsePulls {
-  const [pulls, setPulls] = useState<Pull[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pulls, setPulls] = useState<Pull[]>(() => loadCache<Pull[]>(CACHE_KEY) ?? []);
+  const [loading, setLoading] = useState(pulls.length === 0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,6 +23,7 @@ export function usePulls(intervalMs = 60_000): UsePulls {
       try {
         const list = await fetchPulls();
         if (!cancelled) {
+          saveCache(CACHE_KEY, list);
           setPulls(list);
           setError(null);
         }

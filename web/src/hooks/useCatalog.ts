@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import type { CatalogResponse } from "../../../shared/types";
 import { fetchCatalog } from "../lib/api";
+import { loadCache, saveCache } from "../lib/swrCache";
+
+const CACHE_KEY = "ghr:catalog:v1";
 
 // Full repo label/milestone catalog. Fetched once and shared across consumers —
 // it changes rarely and the server caches it too.
@@ -10,13 +13,14 @@ let inflight: Promise<CatalogResponse> | null = null;
 const EMPTY: CatalogResponse = { labels: [], milestones: [] };
 
 export function useCatalog(): CatalogResponse {
-  const [catalog, setCatalog] = useState<CatalogResponse>(cache ?? EMPTY);
+  const [catalog, setCatalog] = useState<CatalogResponse>(() => cache ?? loadCache<CatalogResponse>(CACHE_KEY) ?? EMPTY);
 
   useEffect(() => {
     if (cache) return;
     let cancelled = false;
     inflight ??= fetchCatalog().then((c) => {
       cache = c;
+      saveCache(CACHE_KEY, c);
       return c;
     });
     inflight

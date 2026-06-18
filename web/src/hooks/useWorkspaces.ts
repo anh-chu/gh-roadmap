@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Workspace } from "../../../shared/types";
 import { fetchWorkspaces } from "../lib/api";
+import { loadCache, saveCache } from "../lib/swrCache";
+
+const CACHE_KEY = "ghr:workspaces:v1";
 
 interface WorkspacesData {
   workspaces: Workspace[];
@@ -19,6 +22,7 @@ async function load(): Promise<WorkspacesData> {
   if (!inflight) {
     inflight = fetchWorkspaces().then((d) => {
       cache = d;
+      saveCache(CACHE_KEY, d);
       inflight = null;
       return d;
     });
@@ -41,7 +45,7 @@ export interface UseWorkspacesResult {
 }
 
 export function useWorkspaces(): UseWorkspacesResult {
-  const [data, setData] = useState<WorkspacesData | null>(cache);
+  const [data, setData] = useState<WorkspacesData | null>(() => cache ?? loadCache<WorkspacesData>(CACHE_KEY));
 
   useEffect(() => {
     let cancelled = false;
