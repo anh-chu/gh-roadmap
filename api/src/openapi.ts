@@ -72,8 +72,6 @@ const arrayOf = (ref: string): JsonSchema => ({ type: "array", items: { $ref: re
 const stringEnum = (values: string[]): JsonSchema => ({ type: "string", enum: values });
 const nullableString: JsonSchema = { type: ["string", "null"] };
 const nullableNumber: JsonSchema = { type: ["number", "null"] };
-const debugTokenQuery = query("token", "Optional debug token when DEBUG_TOKEN is set.");
-const debugNQuery = query("n", "Optional max log count.");
 
 export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
   return {
@@ -105,7 +103,6 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       { name: "progress", description: "PM health, brief, flow, and progress reads." },
       { name: "projects", description: "GitHub Projects v2 board mirror." },
       { name: "config", description: "Workspace configuration and catalogs." },
-      { name: "debug", description: "Operator debug and sync diagnostics." },
       { name: "sync", description: "Manual reconciliation actions." },
       { name: "data", description: "Full-workspace export / import (backup and restore)." },
       { name: "auth", description: "Google OAuth login / session (only active when auth is enabled)." },
@@ -624,33 +621,6 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
           responses: okGh({ type: "object", additionalProperties: true }),
           "x-side-effects": true,
           "x-github-write": true,
-        }),
-      },
-      "/api/debug/logs": {
-        get: op("debug", "getDebugLogs", "Read recent backend logs as text.", {
-          parameters: [debugNQuery, debugTokenQuery],
-          responses: {
-            "200": { description: "Plain text log buffer", content: { "text/plain": { schema: { type: "string" } } } },
-            "401": json({ $ref: "#/components/schemas/Error" }, "Debug token required"),
-          },
-        }),
-      },
-      "/api/debug/logs/stream": {
-        get: op("debug", "streamDebugLogs", "Stream backend logs as SSE.", {
-          parameters: [debugTokenQuery],
-          responses: {
-            "200": { description: "Server-sent events log stream", content: { "text/event-stream": { schema: { type: "string" } } } },
-            "401": json({ $ref: "#/components/schemas/Error" }, "Debug token required"),
-          },
-        }),
-      },
-      "/api/debug/sync": {
-        get: op("debug", "getDebugSync", "Read sync diagnostics and a GitHub connectivity probe.", {
-          parameters: [debugTokenQuery],
-          responses: {
-            "200": { description: "Sync diagnostics payload", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
-            "401": json({ $ref: "#/components/schemas/Error" }, "Debug token required"),
-          },
         }),
       },
       "/api/sync": {

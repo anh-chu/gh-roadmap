@@ -10,7 +10,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { initDb } from "./db.js";
-import { logStream } from "./logBuffer.js";
 import { initGithub, getRateLimitStatus, isGithubConfigured } from "./github.js";
 import { reconcile, runDailySnapshot } from "./sync.js";
 import { backfillAllHealthSnapshots } from "./healthBackfill.js";
@@ -32,7 +31,6 @@ import { logResolvedModels } from "./ai.js";
 import { insightsRoutes } from "./routes/insights.js";
 import { accountsRoutes } from "./routes/accounts.js";
 import { syncRoutes } from "./routes/sync.js";
-import { debugRoutes } from "./routes/debug.js";
 import { openapiRoutes } from "./routes/openapi.js";
 import { repoFileRoutes } from "./routes/repoFile.js";
 import { dataRoutes } from "./routes/data.js";
@@ -61,7 +59,7 @@ const NIGHTLY_MS = 24 * 60 * 60 * 1000;
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 async function main(): Promise<void> {
-  const app = Fastify({ logger: { stream: logStream } });
+  const app = Fastify({ logger: true });
 
   if (!isGithubConfigured()) {
     app.log.warn("GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY/INSTALLATION_ID; sync disabled");
@@ -133,7 +131,6 @@ async function main(): Promise<void> {
     const url = req.url.split("?")[0] ?? "";
     if (!url.startsWith("/api/")) return; // SPA + assets load so the login screen can render
     if (url.startsWith("/api/auth/")) return; // login flow must be reachable while logged out
-    if (url.startsWith("/api/debug/")) return;
     if (!user) return reply.code(401).send({ error: "authentication required" });
 
     // Global viewer gate (layer 2): viewers are read-only — any non-GET/HEAD /api request is 403
@@ -175,7 +172,6 @@ async function main(): Promise<void> {
   await app.register(insightsRoutes);
   await app.register(accountsRoutes);
   await app.register(syncRoutes);
-  await app.register(debugRoutes);
   await app.register(repoFileRoutes);
   await app.register(dataRoutes);
   await app.register(openapiRoutes);

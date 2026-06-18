@@ -19,11 +19,6 @@ import {
 // and the poll loop. Manual sync route has its own _syncing flag as well.
 let _reconciling = false;
 let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
-let _reconcileStartedAt: string | null = null;
-let _reconcileFinishedAt: string | null = null;
-let _reconcileLastDurationMs: number | null = null;
-let _reconcileLastError: string | null = null;
-let _reconcileLastErrorAt: string | null = null;
 
 export function upsertIssue(i: GhIssue): void {
   db()
@@ -162,103 +157,92 @@ export async function reconcile(): Promise<{
 }> {
   if (_reconciling) return { issues: 0, comments: 0, pulls: 0, reviews: 0, events: 0 };
   _reconciling = true;
-  _reconcileStartedAt = new Date().toISOString();
-  const startedMs = Date.now();
   try {
-    const last = getKv("lastSyncAt");
-    const lastWebhook = getKv("lastWebhookAt");
+  const last = getKv("lastSyncAt");
+  const lastWebhook = getKv("lastWebhookAt");
 
-    // Parallel fetch with early page cutoff on incremental sync.
-    const [issuesResult, pulls] = await Promise.all([
-      fetchAllIssues(last ?? undefined),
-      fetchAllPulls(last ?? undefined),
-    ]);
-    const { issues, comments } = issuesResult;
+  // Parallel fetch with early page cutoff on incremental sync.
+  const [issuesResult, pulls] = await Promise.all([
+    fetchAllIssues(last ?? undefined),
+    fetchAllPulls(last ?? undefined),
+  ]);
+  const { issues, comments } = issuesResult;
 
-    // Floor for timeline fetches. First boot: 30 days. Subsequent: lastSyncAt - 7d.
-    const floor = last
-      ? new Date(Date.parse(last) - 7 * 24 * 3600 * 1000).toISOString()
-      : new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  // Floor for timeline fetches. First boot: 30 days. Subsequent: lastSyncAt - 7d.
+  const floor = last
+    ? new Date(Date.parse(last) - 7 * 24 * 3600 * 1000).toISOString()
+    : new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
 
-    // Skip timeline if webhook has been delivering events since last sync.
-    const webhookCurrent = !!(last && lastWebhook && Date.parse(lastWebhook) > Date.parse(last));
-    const issuesNeedingTimeline = webhookCurrent
-      ? []
-      : last
-        ? issues.filter((i) => i.updated_at > last)
-        : issues;
+  // Skip timeline if webhook has been delivering events since last sync.
+  const webhookCurrent = !!(last && lastWebhook && Date.parse(lastWebhook) > Date.parse(last));
+  const issuesNeedingTimeline = webhookCurrent
+    ? []
+    : last
+      ? issues.filter((i) => i.updated_at > last)
+      : issues;
 
-    // Batch timeline fetches 5-wide (network I/O, outside SQLite transaction).
-    let totalReviews = 0;
-    const allEvents: GhTimelineEvent[] = [];
-    const BATCH = 5;
-    for (let i = 0; i < issuesNeedingTimeline.length; i += BATCH) {
-      const chunk = issuesNeedingTimeline.slice(i, i + BATCH);
-      const results = await Promise.allSettled(
-        chunk.map((issue) => fetchIssueTimelineSince(issue.number, floor, 100)),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled") allEvents.push(...r.value);
-      }
+  // Batch timeline fetches 5-wide (network I/O, outside SQLite transaction).
+  let totalReviews = 0;
+  const allEvents: GhTimelineEvent[] = [];
+  const BATCH = 5;
+  for (let i = 0; i < issuesNeedingTimeline.length; i += BATCH) {
+    const chunk = issuesNeedingTimeline.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      chunk.map((issue) => fetchIssueTimelineSince(issue.number, floor, 100)),
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") allEvents.push(...r.value);
     }
+  }
 
-    const tx = db().transaction(() => {
-      for (const i of issues) upsertIssue(i);
-      for (const c of comments) upsertComment(c);
-      for (const p of pulls) {
-        upsertPull(p);
-        for (const rv of p.reviews) {
-          upsertReview(rv);
-          totalReviews++;
-        }
-        if (p.check_status) upsertPullChecks(p.number, p.check_status, p.check_status);
+  const tx = db().transaction(() => {
+    for (const i of issues) upsertIssue(i);
+    for (const c of comments) upsertComment(c);
+    for (const p of pulls) {
+      upsertPull(p);
+      for (const rv of p.reviews) {
+        upsertReview(rv);
+        totalReviews++;
       }
-      for (const e of allEvents) upsertIssueEvent(e);
+      if (p.check_status) upsertPullChecks(p.number, p.check_status, p.check_status);
+    }
+    for (const e of allEvents) upsertIssueEvent(e);
+  });
+  tx();
+
+  // Milestone due-date reconcile: issue rows only refresh milestone_due when the
+  // issue itself changes upstream, so a milestone's due_on edit (or a freshly
+  // added column) leaves stale/null values. One cheap REST call aligns all rows.
+  try {
+    const milestones = await listRepoMilestonesWithDue();
+    const align = db().prepare(
+      "UPDATE issues SET milestone_due = ? WHERE milestone = ? AND milestone_due IS NOT ?",
+    );
+    const mtx = db().transaction(() => {
+      for (const m of milestones) align.run(m.due_on, m.title, m.due_on);
     });
-    tx();
-
-    // Milestone due-date reconcile: issue rows only refresh milestone_due when the
-    // issue itself changes upstream, so a milestone's due_on edit (or a freshly
-    // added column) leaves stale/null values. One cheap REST call aligns all rows.
-    try {
-      const milestones = await listRepoMilestonesWithDue();
-      const align = db().prepare(
-        "UPDATE issues SET milestone_due = ? WHERE milestone = ? AND milestone_due IS NOT ?",
-      );
-      const mtx = db().transaction(() => {
-        for (const m of milestones) align.run(m.due_on, m.title, m.due_on);
-      });
-      mtx();
-    } catch (err) {
-      console.error("milestone due reconcile failed", err);
-    }
-
-    // Pinned-project refresh: project_items otherwise only refresh when the Kanban
-    // routes are hit, so Roadmap-only sessions would join stale status forever.
-    // Forces past the 60s freshness gate; no-op when GITHUB_PROJECT_NUMBER is unset.
-    try {
-      await refreshPinnedProject();
-    } catch (err) {
-      console.error("pinned project refresh failed", err);
-    }
-
-    setKv("lastSyncAt", new Date().toISOString());
-    const finishedAt = new Date().toISOString();
-    _reconcileFinishedAt = finishedAt;
-    _reconcileLastDurationMs = Date.now() - startedMs;
-    _reconcileLastError = null;
-    _reconcileLastErrorAt = null;
-    return {
-      issues: issues.length,
-      comments: comments.length,
-      pulls: pulls.length,
-      reviews: totalReviews,
-      events: allEvents.length,
-    };
+    mtx();
   } catch (err) {
-    _reconcileLastError = err instanceof Error ? err.message : String(err);
-    _reconcileLastErrorAt = new Date().toISOString();
-    throw err;
+    console.error("milestone due reconcile failed", err);
+  }
+
+  // Pinned-project refresh: project_items otherwise only refresh when the Kanban
+  // routes are hit, so Roadmap-only sessions would join stale status forever.
+  // Forces past the 60s freshness gate; no-op when GITHUB_PROJECT_NUMBER is unset.
+  try {
+    await refreshPinnedProject();
+  } catch (err) {
+    console.error("pinned project refresh failed", err);
+  }
+
+  setKv("lastSyncAt", new Date().toISOString());
+  return {
+    issues: issues.length,
+    comments: comments.length,
+    pulls: pulls.length,
+    reviews: totalReviews,
+    events: allEvents.length,
+  };
   } finally {
     _reconciling = false;
   }
@@ -267,24 +251,6 @@ export async function reconcile(): Promise<{
 // Schedule a reconcile after a debounce delay. Used by webhook handler so that
 // changes pushed via GitHub appear within seconds instead of waiting for the next
 // poll cycle. Debounce prevents a burst of webhooks from triggering N reconciles.
-export function getReconcileDiag(): {
-  running: boolean;
-  startedAt: string | null;
-  finishedAt: string | null;
-  lastDurationMs: number | null;
-  lastError: string | null;
-  lastErrorAt: string | null;
-} {
-  return {
-    running: _reconciling,
-    startedAt: _reconcileStartedAt,
-    finishedAt: _reconcileFinishedAt,
-    lastDurationMs: _reconcileLastDurationMs,
-    lastError: _reconcileLastError,
-    lastErrorAt: _reconcileLastErrorAt,
-  };
-}
-
 export function scheduleReconcile(delayMs = 10_000): void {
   if (_reconcileTimer) clearTimeout(_reconcileTimer);
   _reconcileTimer = setTimeout(() => {

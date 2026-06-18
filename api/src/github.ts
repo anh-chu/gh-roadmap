@@ -143,24 +143,6 @@ export function getRateLimitStatus(): RateLimit {
   return { ..._rate };
 }
 
-export async function probeGitHub(timeoutMs = 8000): Promise<{ ok: boolean; status: number; ms: number; error: string | null }> {
-  const start = Date.now();
-  try {
-    const res = await fetch("https://api.github.com/rate_limit", {
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: { "user-agent": "gh-roadmap-debug" },
-    });
-    return { ok: res.ok, status: res.status, ms: Date.now() - start, error: null };
-  } catch (e) {
-    return {
-      ok: false,
-      status: 0,
-      ms: Date.now() - start,
-      error: e instanceof Error ? (e.name === "TimeoutError" ? "timeout" : e.message) : String(e),
-    };
-  }
-}
-
 // "owner/repo" of the issues repo, or null when GitHub is unconfigured.
 // Used to build issue web links (https://github.com/<slug>/issues/<n>).
 export function getRepoSlug(): string | null {
