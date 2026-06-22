@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import type { CSSProperties, DragEvent } from "react";
-import type { BucketsInfo, FlowResult, Issue, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
+import type { BucketsInfo, FlowResult, Issue, Pull, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import type { BucketChange, MoveTarget } from "../hooks/useIssues";
 import { Card } from "./Card";
 import {
@@ -48,6 +48,7 @@ interface BoardProps {
   passFilter: (i: Issue) => boolean;
   flow: Map<number, FlowResult>;
   insightCounts?: Record<number, number>;
+  pullsByIssue?: Map<number, Pull[]>;
   // False when GITHUB_PROJECT_NUMBER is unset — meta columns degrade to the
   // legacy app-only model (is_todo → TODO, unplanned → Backlog).
   projectPinned: boolean;
@@ -88,10 +89,11 @@ interface CellProps {
   onDrop: (num: number, colKey: string) => void;
   flow: Map<number, FlowResult>;
   insightCounts?: Record<number, number>;
+  pullsByIssue?: Map<number, Pull[]>;
   granularity: RangeGranularity;
 }
 
-function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, granularity }: CellProps): JSX.Element {
+function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity }: CellProps): JSX.Element {
   const isBL = colKey === "backlog";
   const isTD = colKey === "todo";
   const cls =
@@ -124,7 +126,7 @@ function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightC
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
     >
-      {cards.map((c) => <Card key={c.num} issue={c} onOpen={onOpen} flowResult={flow.get(c.num)} insightCount={insightCounts?.[c.num] ?? 0} granularity={granularity} />)}
+      {cards.map((c) => <Card key={c.num} issue={c} onOpen={onOpen} flowResult={flow.get(c.num)} insightCount={insightCounts?.[c.num] ?? 0} pulls={pullsByIssue?.get(c.num)} granularity={granularity} />)}
     </div>
   );
 }
@@ -140,7 +142,7 @@ function issueBucket(i: Issue, buckets: BucketsInfo): string | null {
   return i.milestone ?? NO_MILESTONE;
 }
 
-export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flow, insightCounts, projectPinned }: BoardProps): JSX.Element {
+export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flow, insightCounts, pullsByIssue, projectPinned }: BoardProps): JSX.Element {
   const granularity = config.rangeGranularity;
   const timeCols = buildColumns(config);
   const metaCols: BoardCol[] = [TODO_COL, BACKLOG_COL];
@@ -230,6 +232,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
           onDrop={handleDrop(bucket)}
           flow={flow}
           insightCounts={insightCounts}
+          pullsByIssue={pullsByIssue}
           granularity={granularity}
         />
       );

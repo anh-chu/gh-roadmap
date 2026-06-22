@@ -10,6 +10,7 @@ import {
   listRepoMilestonesWithDue,
   type GhComment,
   type GhIssue,
+  type GhExternalPull,
   type GhPull,
   type GhReview,
   type GhTimelineEvent,
@@ -70,8 +71,8 @@ export function deleteCommentRow(id: number): void {
 export function upsertPull(p: GhPull): void {
   db()
     .prepare(
-      `INSERT INTO pulls(number,title,state,merged,merged_at,author,created_at,updated_at,closed_at,body,linked_issues,raw,is_draft,last_commit_at,head_ref)
-       VALUES(@number,@title,@state,@merged,@merged_at,@author,@created_at,@updated_at,@closed_at,@body,@linked_issues,@raw,@is_draft,@last_commit_at,@head_ref)
+      `INSERT INTO pulls(number,title,state,merged,merged_at,author,created_at,updated_at,closed_at,body,linked_issues,raw,is_draft,last_commit_at,head_ref,repo)
+       VALUES(@number,@title,@state,@merged,@merged_at,@author,@created_at,@updated_at,@closed_at,@body,@linked_issues,@raw,@is_draft,@last_commit_at,@head_ref,'')
        ON CONFLICT(number) DO UPDATE SET
          title=excluded.title, state=excluded.state, merged=excluded.merged,
          merged_at=excluded.merged_at, author=excluded.author,
@@ -80,7 +81,8 @@ export function upsertPull(p: GhPull): void {
          body=excluded.body, linked_issues=excluded.linked_issues, raw=excluded.raw,
          is_draft=excluded.is_draft,
          last_commit_at=COALESCE(excluded.last_commit_at, pulls.last_commit_at),
-         head_ref=COALESCE(excluded.head_ref, pulls.head_ref)`,
+         head_ref=COALESCE(excluded.head_ref, pulls.head_ref),
+         repo=''`,
     )
     .run({
       number: p.number,
@@ -98,6 +100,40 @@ export function upsertPull(p: GhPull): void {
       is_draft: p.is_draft ? 1 : 0,
       last_commit_at: p.last_commit_at,
       head_ref: p.head_ref,
+    });
+}
+
+// Upsert a cross-repo PR (Option A). Collision-safe: product-repo rows (repo='')
+// always win, and a same-number row from a *different* external repo is left untouched
+// (the DO UPDATE ... WHERE no-ops). No reviews/CI mirror for these — link + state only.
+// `linkedIssues` is the merged set of product issues that reference this PR.
+export function upsertExternalPull(p: GhExternalPull, linkedIssues: number[]): void {
+  db()
+    .prepare(
+      `INSERT INTO pulls(number,title,state,merged,merged_at,author,created_at,updated_at,closed_at,body,linked_issues,raw,is_draft,last_commit_at,head_ref,repo)
+       VALUES(@number,@title,@state,@merged,@merged_at,@author,@created_at,@updated_at,@closed_at,NULL,@linked_issues,@raw,@is_draft,NULL,NULL,@repo)
+       ON CONFLICT(number) DO UPDATE SET
+         title=excluded.title, state=excluded.state, merged=excluded.merged,
+         merged_at=excluded.merged_at, author=excluded.author,
+         created_at=COALESCE(excluded.created_at, pulls.created_at),
+         updated_at=excluded.updated_at, closed_at=excluded.closed_at,
+         linked_issues=excluded.linked_issues, raw=excluded.raw, is_draft=excluded.is_draft
+       WHERE pulls.repo = excluded.repo`,
+    )
+    .run({
+      number: p.number,
+      title: p.title,
+      state: p.state,
+      merged: p.merged ? 1 : 0,
+      merged_at: p.merged_at,
+      author: p.author,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+      closed_at: p.closed_at,
+      linked_issues: JSON.stringify(linkedIssues),
+      raw: JSON.stringify(p),
+      is_draft: p.is_draft ? 1 : 0,
+      repo: p.repo,
     });
 }
 
@@ -181,17 +217,50 @@ export async function reconcile(): Promise<{
       ? issues.filter((i) => i.updated_at > last)
       : issues;
 
-  // Batch timeline fetches 5-wide (network I/O, outside SQLite transaction).
+  // Priority order so a slow or interrupted pass refreshes the work a PM watches first
+  // (flow state + cross-repo PR links land on committed work before parking lots).
+  // Tier 0: open + scheduled (planned in any workspace); 1: open + unscheduled (TODO/Backlog
+  // — distinguishing the two now needs the Projects status join, not worth it here); 2: closed.
+  // Recent-first within a tier. is_todo is deprecated (placement reads Projects status), so we
+  // key on planned_month/planned_week, the durable "committed to a timeframe" signal.
+  const scheduled = new Set(
+    (db()
+      .prepare("SELECT DISTINCT issue_number FROM roadmap_meta WHERE planned_month IS NOT NULL OR planned_week IS NOT NULL")
+      .all() as { issue_number: number }[])
+      .map((r) => r.issue_number),
+  );
+  const syncTier = (i: GhIssue): number =>
+    i.state !== "open" ? 2 : scheduled.has(i.number) ? 0 : 1;
+  issuesNeedingTimeline.sort(
+    (a, b) => syncTier(a) - syncTier(b) || (b.updated_at > a.updated_at ? 1 : -1),
+  );
+
+  // Batch timeline fetches 10-wide (network I/O, outside SQLite transaction).
   let totalReviews = 0;
   const allEvents: GhTimelineEvent[] = [];
-  const BATCH = 5;
+  // Cross-repo PRs discovered via issue timelines, aggregated by `repo#number` so one
+  // PR referencing several product issues upserts once with the merged linked-issue set.
+  const externalByKey = new Map<string, { pull: GhExternalPull; issues: Set<number> }>();
+  const BATCH = 10;
   for (let i = 0; i < issuesNeedingTimeline.length; i += BATCH) {
     const chunk = issuesNeedingTimeline.slice(i, i + BATCH);
     const results = await Promise.allSettled(
       chunk.map((issue) => fetchIssueTimelineSince(issue.number, floor, 100)),
     );
     for (const r of results) {
-      if (r.status === "fulfilled") allEvents.push(...r.value);
+      if (r.status !== "fulfilled") continue;
+      allEvents.push(...r.value.events);
+      for (const ext of r.value.externalPulls) {
+        const key = `${ext.repo}#${ext.number}`;
+        const entry = externalByKey.get(key);
+        if (entry) {
+          entry.issues.add(ext.linked_issue);
+          // Keep the freshest snapshot of the PR's lifecycle.
+          if (ext.updated_at > entry.pull.updated_at) entry.pull = ext;
+        } else {
+          externalByKey.set(key, { pull: ext, issues: new Set([ext.linked_issue]) });
+        }
+      }
     }
   }
 
@@ -207,6 +276,9 @@ export async function reconcile(): Promise<{
       if (p.check_status) upsertPullChecks(p.number, p.check_status, p.check_status);
     }
     for (const e of allEvents) upsertIssueEvent(e);
+    for (const { pull, issues: linked } of externalByKey.values()) {
+      upsertExternalPull(pull, [...linked].sort((a, b) => a - b));
+    }
   });
   tx();
 

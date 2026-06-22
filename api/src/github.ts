@@ -267,6 +267,24 @@ export type GhTimelineEvent = {
   payload: string | null;
 };
 
+// A PR in a different repo that references a product issue, surfaced via the issue
+// timeline. Mirrored into `pulls` (repo != '') so cross-repo work shows on the issue.
+export type GhExternalPull = {
+  repo: string; // owner/name (always non-empty)
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  merged: boolean;
+  merged_at: string | null;
+  is_draft: boolean;
+  author: string | null;
+  created_at: string | null;
+  updated_at: string;
+  closed_at: string | null;
+  url: string;
+  linked_issue: number; // the product issue whose timeline surfaced this PR
+};
+
 type GqlPullNode = {
   number: number;
   title: string;
@@ -1039,8 +1057,25 @@ type GqlTimelineNode = {
   actor?: { login: string } | null;
   label?: { name: string };
   assignee?: { login: string } | null;
-  source?: { __typename: string; number?: number; title?: string };
-  subject?: { __typename: string; number?: number; title?: string };
+  source?: TimelineRef;
+  subject?: TimelineRef;
+};
+
+// A cross-/referenced timeline target. For PullRequests we capture enough to mirror a
+// cross-repo PR (Option A): repo, lifecycle, merge state, author, timestamps, url.
+type TimelineRef = {
+  __typename: string;
+  number?: number;
+  title?: string;
+  state?: "OPEN" | "CLOSED" | "MERGED";
+  isDraft?: boolean;
+  mergedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  closedAt?: string | null;
+  url?: string;
+  author?: { login: string } | null;
+  repository?: { nameWithOwner: string };
 };
 
 type GqlIssueTimelinePage = {
@@ -1070,7 +1105,6 @@ const TIMELINE_QUERY = /* GraphQL */ `
             MENTIONED_EVENT
             CROSS_REFERENCED_EVENT
             REFERENCED_EVENT
-            READY_FOR_REVIEW_EVENT
           ]
         ) {
           pageInfo { hasNextPage endCursor }
@@ -1084,18 +1118,30 @@ const TIMELINE_QUERY = /* GraphQL */ `
             ... on CrossReferencedEvent {
               createdAt
               actor { login }
-              source { __typename ... on Issue { number title } ... on PullRequest { number title } }
+              source { __typename ... on Issue { number title } ... on PullRequest { ...prRef } }
             }
             ... on ReferencedEvent {
               createdAt
               actor { login }
-              subject { __typename ... on Issue { number title } ... on PullRequest { number title } }
+              subject { __typename ... on Issue { number title } ... on PullRequest { ...prRef } }
             }
-            ... on ReadyForReviewEvent { createdAt actor { login } }
           }
         }
       }
     }
+  }
+  fragment prRef on PullRequest {
+    number
+    title
+    state
+    isDraft
+    mergedAt
+    createdAt
+    updatedAt
+    closedAt
+    url
+    author { login }
+    repository { nameWithOwner }
   }
 `;
 
@@ -1437,12 +1483,35 @@ export async function closeInsightPr(o: Octokit, prNumber: number): Promise<void
   }
 }
 
+// Extract a cross-repo PR from a timeline ref, or null when it's same-repo / not a PR.
+function externalPullFromRef(ref: TimelineRef | undefined, issueNumber: number): GhExternalPull | null {
+  if (!ref || ref.__typename !== "PullRequest" || typeof ref.number !== "number") return null;
+  const repo = ref.repository?.nameWithOwner ?? "";
+  if (!repo || repo === `${_owner}/${_repo}`) return null; // same-repo PRs come from fetchAllPulls
+  return {
+    repo,
+    number: ref.number,
+    title: ref.title ?? `#${ref.number}`,
+    state: ref.state === "OPEN" ? "open" : "closed",
+    merged: ref.state === "MERGED",
+    merged_at: ref.mergedAt ?? null,
+    is_draft: !!ref.isDraft,
+    author: ref.author?.login ?? null,
+    created_at: ref.createdAt ?? null,
+    updated_at: ref.updatedAt ?? ref.createdAt ?? new Date(0).toISOString(),
+    closed_at: ref.closedAt ?? null,
+    url: ref.url ?? `https://github.com/${repo}/pull/${ref.number}`,
+    linked_issue: issueNumber,
+  };
+}
+
 export async function fetchIssueTimelineSince(
   issueNumber: number,
   sinceIso: string,
   cap = 100,
-): Promise<GhTimelineEvent[]> {
+): Promise<{ events: GhTimelineEvent[]; externalPulls: GhExternalPull[] }> {
   const out: GhTimelineEvent[] = [];
+  const externalPulls: GhExternalPull[] = [];
   let cursor: string | null = null;
   for (;;) {
     const data: GqlIssueTimelinePage = await octo().graphql<GqlIssueTimelinePage>(TIMELINE_QUERY, {
@@ -1469,9 +1538,13 @@ export async function fetchIssueTimelineSince(
       } else if (type === "cross-referenced" && n.source) {
         extra = `${n.source.__typename}#${n.source.number ?? ""}`;
         payload = { source: n.source };
+        const ext = externalPullFromRef(n.source, issueNumber);
+        if (ext) externalPulls.push(ext);
       } else if (type === "referenced" && n.subject) {
         extra = `${n.subject.__typename}#${n.subject.number ?? ""}`;
         payload = { subject: n.subject };
+        const ext = externalPullFromRef(n.subject, issueNumber);
+        if (ext) externalPulls.push(ext);
       }
       const id = typeof n.databaseId === "number" ? n.databaseId : hashId(issueNumber, type, n.createdAt, extra);
       out.push({
@@ -1482,10 +1555,10 @@ export async function fetchIssueTimelineSince(
         created_at: n.createdAt,
         payload: payload ? JSON.stringify(payload) : null,
       });
-      if (out.length >= cap) return out;
+      if (out.length >= cap) return { events: out, externalPulls };
     }
     if (!page.pageInfo.hasNextPage) break;
     cursor = page.pageInfo.endCursor;
   }
-  return out;
+  return { events: out, externalPulls };
 }

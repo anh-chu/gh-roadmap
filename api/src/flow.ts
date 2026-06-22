@@ -88,20 +88,23 @@ export function computeFlowState(input: FlowInput): FlowResult {
     return { state: "closed", score: 0, signals: ["issue closed"] };
   }
 
-  // shipping — recent merge, or open PR ready + CI green + approved.
+  // shipping — a merged PR ships the issue, or open PR ready + CI green + approved.
+  // A merged linked PR keeps the issue in `shipping` even past the merge window: the work
+  // landed, it's just not closed yet. Without this an open-but-shipped issue decays into
+  // "discussing" (its last comment), which reads as activity rather than done. `shippingHours`
+  // no longer gates the state — it only marks a fresh ship vs a shipped-but-still-open one.
   let recentMergeMs = Number.POSITIVE_INFINITY;
   for (const p of pulls) {
     if (p.merged && p.mergedAt) {
       const age = ageMs(p.mergedAt, now);
-      if (age < t.shippingHours * HOUR && age < recentMergeMs) {
-        recentMergeMs = age;
-      }
+      if (age < recentMergeMs) recentMergeMs = age;
     }
   }
   if (Number.isFinite(recentMergeMs)) {
     // pick the matching PR for signal
     const p = pulls.find((x) => x.merged && x.mergedAt && ageMs(x.mergedAt, now) === recentMergeMs)!;
-    signals.push(`PR #${p.number} merged ${fmtAge(recentMergeMs)}`);
+    const stillOpen = recentMergeMs >= t.shippingHours * HOUR;
+    signals.push(`PR #${p.number} merged ${fmtAge(recentMergeMs)}${stillOpen ? " · issue still open" : ""}`);
     // Higher score for fresher merge: invert (in minutes).
     const minSinceMerge = Math.max(1, Math.round(recentMergeMs / 60000));
     return { state: "shipping", score: 100000 / minSinceMerge, signals };

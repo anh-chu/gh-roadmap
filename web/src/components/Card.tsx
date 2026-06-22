@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { FlowResult, Issue, RangeGranularity } from "../../../shared/types";
+import type { FlowResult, Issue, Pull, RangeGranularity } from "../../../shared/types";
 import { FlowPill } from "./FlowPill";
 import { resolveEffortChip } from "./EffortChip";
+import { CI_LABEL, REVIEW_LABEL, primaryPull, pullStateLabel } from "../lib/pull";
 import { useIssueSummary } from "../hooks/useIssueSummary";
 import { driftState, milestoneColumnKey, planPrecision } from "../lib/timeRange";
 import { canEdit } from "../lib/role";
@@ -14,6 +15,7 @@ interface CardProps {
   onOpen: (i: Issue) => void;
   flowResult?: FlowResult | undefined;
   insightCount?: number;
+  pulls?: Pull[];
   granularity?: RangeGranularity;
 }
 
@@ -25,7 +27,7 @@ interface TooltipAnchor {
 const TOOLTIP_WIDTH = 360;
 const TOOLTIP_OFFSET = 8;
 
-export function Card({ issue, onOpen, flowResult, insightCount = 0, granularity }: CardProps): JSX.Element {
+export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granularity }: CardProps): JSX.Element {
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const timerRef = useRef<number | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -111,6 +113,16 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, granularity 
   // Chip only when the milestone is truly absent — a milestone present but undated shows nothing.
   const unanchored = dState === "unanchored" && !issue.milestone && issue.state !== "closed";
 
+  // Compact PR chip: most progress-relevant linked PR, CI/review as the visible signal.
+  const pr = primaryPull(pulls ?? []);
+  const prSt = pr ? pullStateLabel(pr) : null;
+  const prTip = pr
+    ? `${pr.repo ? pr.repo + " " : ""}PR #${pr.number} · ${prSt!.label}` +
+      (pr.ci ? ` · ${CI_LABEL[pr.ci]}` : "") +
+      (pr.reviewDecision ? ` · ${REVIEW_LABEL[pr.reviewDecision]}` : "") +
+      (pulls && pulls.length > 1 ? ` · +${pulls.length - 1} more` : "")
+    : "";
+
   return (
     <div
       ref={cardRef}
@@ -135,6 +147,14 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, granularity 
           <span className="card-assignee-name">{issue.assignee}</span>
         </span>
         <span className="card-meta">
+          {pr ? (
+            <span className={`com card-pr-chip pr-state-${prSt!.mod}`} title={prTip}>
+              <span aria-hidden>⑃</span>
+              {pr.ci ? <i className={`card-pr-ci pr-ci-${pr.ci}`} /> : null}
+              {pr.reviewDecision === "approved" ? <span aria-hidden>✓</span> : null}
+              {pr.reviewDecision === "changes_requested" ? <span aria-hidden>±</span> : null}
+            </span>
+          ) : null}
           {insightCount > 0 ? (
             <span className="com card-insight-chip" title={`${insightCount} insight${insightCount === 1 ? "" : "s"}`}>
               <span aria-hidden>📎</span>

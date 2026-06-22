@@ -372,6 +372,7 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
               passFilter={passFilter}
               flow={flow}
               insightCounts={insightCounts}
+              pullsByIssue={pulls.byIssue}
               projectPinned={meta?.projectPinned ?? false}
             />
           ) : (

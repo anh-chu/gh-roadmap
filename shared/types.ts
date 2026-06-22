@@ -229,6 +229,11 @@ export interface Issue {
   projectItemId: string | null; // pinned-project item id (needed for status writes)
 }
 
+// Normalized CI rollup for a PR (from pull_checks status + conclusion).
+export type PullCi = "success" | "failure" | "pending" | null;
+// Net review decision (latest review per author), null when no reviews.
+export type PullReviewDecision = "approved" | "changes_requested" | "commented" | null;
+
 export interface ApiPull {
   number: number;
   title: string;
@@ -240,6 +245,11 @@ export interface ApiPull {
   updatedAt: string;
   closedAt: string | null;
   linkedIssues: number[];
+  isDraft: boolean;
+  ci: PullCi;
+  reviewDecision: PullReviewDecision;
+  lastCommitAt: string | null;
+  repo: string; // '' = the configured product repo; else 'owner/name' for a cross-repo PR
 }
 
 export interface Pull {
@@ -251,6 +261,11 @@ export interface Pull {
   author: string | null;
   updatedAt: string;
   linkedIssues: number[];
+  isDraft: boolean;
+  ci: PullCi;
+  reviewDecision: PullReviewDecision;
+  lastCommitAt: string | null;
+  repo: string;
 }
 
 export function pullFromApi(p: ApiPull): Pull {
@@ -263,6 +278,11 @@ export function pullFromApi(p: ApiPull): Pull {
     author: p.author,
     updatedAt: p.updatedAt,
     linkedIssues: Array.isArray(p.linkedIssues) ? p.linkedIssues : [],
+    isDraft: !!p.isDraft,
+    ci: p.ci ?? null,
+    reviewDecision: p.reviewDecision ?? null,
+    lastCommitAt: p.lastCommitAt ?? null,
+    repo: p.repo ?? "",
   };
 }
 

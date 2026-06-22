@@ -156,7 +156,8 @@ export function initDb(path: string): Database.Database {
       raw           TEXT NOT NULL,
       is_draft      INTEGER NOT NULL DEFAULT 0,
       last_commit_at TEXT,
-      head_ref      TEXT
+      head_ref      TEXT,
+      repo          TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_pulls_state ON pulls(state);
 
@@ -535,6 +536,11 @@ export function initDb(path: string): Database.Database {
   }
   if (!pullColNames.has("head_ref")) {
     db.exec("ALTER TABLE pulls ADD COLUMN head_ref TEXT");
+  }
+  // repo: '' means the configured product repo; non-empty 'owner/name' marks a
+  // cross-repo PR discovered via an issue's CrossReferencedEvent timeline (Option A).
+  if (!pullColNames.has("repo")) {
+    db.exec("ALTER TABLE pulls ADD COLUMN repo TEXT NOT NULL DEFAULT ''");
   }
 
   // Insights are now GitHub-API-sourced; blob_sha (git blob sha from the dir listing)
