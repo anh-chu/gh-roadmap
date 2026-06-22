@@ -5,6 +5,7 @@ type AiConfigPatch = {
   aiModelSummary?: string | null;
   aiModelProgress?: string | null;
   aiModelExtract?: string | null;
+  aiModelRelease?: string | null;
   aiMaxTokensPerRequest?: number;
   aiRateLimitRpm?: number;
   aiDailyTokenBudget?: number;
@@ -24,7 +25,10 @@ export function AiSettings({ config, envDefault, meta, onChange }: AiSettingsPro
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
 
   const hasOverride =
-    !!config.aiModelSummary || !!config.aiModelProgress || !!config.aiModelExtract;
+    !!config.aiModelSummary ||
+    !!config.aiModelProgress ||
+    !!config.aiModelExtract ||
+    !!config.aiModelRelease;
 
   useEffect(() => {
     if (!open) return;
@@ -276,6 +280,13 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         value={config.aiModelExtract}
         envDefault={envDefault}
         onCommit={(v) => onChange({ aiModelExtract: v })}
+      />
+      <AiModelRow
+        label="Release notes"
+        desc="Per-milestone release notes on the Milestones tab"
+        value={config.aiModelRelease}
+        envDefault={envDefault}
+        onCommit={(v) => onChange({ aiModelRelease: v })}
       />
       <div className="pop-section" style={{ borderTop: "1px solid var(--border, #e2e2e2)", marginTop: 4, paddingTop: 8 }}>
         <div className="pop-label">Cost controls</div>

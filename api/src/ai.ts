@@ -8,7 +8,7 @@ import { defaultWorkspaceId } from "./workspace.js";
 import type { RoadmapTimeline } from "./health.js";
 import type { EffortRating, PmActionItem, RiskItem, ScheduleHealth } from "../../shared/types.js";
 
-export type AiTask = "summary" | "progress" | "extract";
+export type AiTask = "summary" | "progress" | "extract" | "release";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -35,6 +35,7 @@ const EXTRACT_INSIGHT_SYSTEM = loadPrompt("extract-insight.md");
 const PM_ACTIONS_SYSTEM = loadPrompt("pm-actions.md");
 const MERGE_INSIGHTS_SYSTEM = loadPrompt("merge-insights.md");
 const ACCOUNT_READ_SYSTEM = loadPrompt("account-read.md");
+const RELEASE_NOTES_SYSTEM = loadPrompt("release-notes.md");
 
 let _client: OpenAI | null = null;
 let _disabledReason: string | null = null;
@@ -43,19 +44,26 @@ type TaskModelRow = {
   ai_model_summary: string | null;
   ai_model_progress: string | null;
   ai_model_extract: string | null;
+  ai_model_release: string | null;
 };
 
 function readTaskModels(workspaceId: number = defaultWorkspaceId()): TaskModelRow {
+  const empty: TaskModelRow = {
+    ai_model_summary: null,
+    ai_model_progress: null,
+    ai_model_extract: null,
+    ai_model_release: null,
+  };
   try {
     const row = db()
       .prepare(
-        "SELECT ai_model_summary, ai_model_progress, ai_model_extract FROM workspace_config WHERE id = ?",
+        "SELECT ai_model_summary, ai_model_progress, ai_model_extract, ai_model_release FROM workspace_config WHERE id = ?",
       )
       .get(workspaceId) as TaskModelRow | undefined;
-    return row ?? { ai_model_summary: null, ai_model_progress: null, ai_model_extract: null };
+    return row ?? empty;
   } catch {
     // DB not initialised yet — treat as no overrides.
-    return { ai_model_summary: null, ai_model_progress: null, ai_model_extract: null };
+    return empty;
   }
 }
 
@@ -263,7 +271,9 @@ export function aiModelFor(task: AiTask, workspaceId?: number): string {
       ? nonEmpty(row.ai_model_summary)
       : task === "progress"
         ? nonEmpty(row.ai_model_progress)
-        : nonEmpty(row.ai_model_extract);
+        : task === "release"
+          ? nonEmpty(row.ai_model_release)
+          : nonEmpty(row.ai_model_extract);
   const envDefault = nonEmpty(process.env.AI_MODEL);
   const resolved = override ?? envDefault;
   if (!resolved) {
@@ -275,7 +285,7 @@ export function aiModelFor(task: AiTask, workspaceId?: number): string {
 }
 
 export function logResolvedModels(log: (msg: string, meta?: Record<string, unknown>) => void): void {
-  const tasks: AiTask[] = ["summary", "progress", "extract"];
+  const tasks: AiTask[] = ["summary", "progress", "extract", "release"];
   const resolved: Record<string, string> = {};
   for (const t of tasks) {
     try {
@@ -618,6 +628,49 @@ export async function accountRead(
 ): Promise<{ content: string; model: string }> {
   const model = aiModelFor("summary", workspaceId);
   const content = await callChat("summary", ACCOUNT_READ_SYSTEM, buildAccountReadUserText(input), model, workspaceId);
+  return { content, model };
+}
+
+// ─────────────── MILESTONE RELEASE NOTES ───────────────
+
+export interface ReleaseNotesIssue {
+  number: number;
+  title: string;
+  body: string | null;
+  labels: string[];
+  mergedPrs: string[]; // titles of merged PRs linked to this issue — concrete "what shipped"
+}
+
+export interface ReleaseNotesInput {
+  milestone: string;
+  dueOn: string | null;
+  issues: ReleaseNotesIssue[]; // closed issues only
+}
+
+function buildReleaseNotesUserText(input: ReleaseNotesInput): string {
+  const lines: string[] = [];
+  lines.push(`Milestone: ${input.milestone}`);
+  if (input.dueOn) lines.push(`Due: ${input.dueOn.slice(0, 10)}`);
+  lines.push(`Shipped issues: ${input.issues.length}`);
+  lines.push("");
+  for (const i of input.issues) {
+    const labelPart = i.labels.length > 0 ? ` [${i.labels.join(", ")}]` : "";
+    lines.push(`#${i.number} ${i.title}${labelPart}`);
+    if (i.body) lines.push(`  ${truncate(i.body, 2000)}`);
+    if (i.mergedPrs.length > 0) {
+      lines.push(`  Shipped via: ${i.mergedPrs.map((t) => `"${t}"`).join(", ")}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// Has its own task model override (ai_model_release); falls back to AI_MODEL env.
+export async function releaseNotes(
+  input: ReleaseNotesInput,
+  workspaceId?: number,
+): Promise<{ content: string; model: string }> {
+  const model = aiModelFor("release", workspaceId);
+  const content = await callChat("release", RELEASE_NOTES_SYSTEM, buildReleaseNotesUserText(input), model, workspaceId);
   return { content, model };
 }
 

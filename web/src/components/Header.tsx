@@ -30,7 +30,7 @@ interface HeaderProps {
   // Gates admin-only controls (AI model settings + data export/import).
   isAdmin: boolean;
   onScopeChange: (patch: { masterFilterInclude?: string[]; masterFilterExclude?: string[] }) => void;
-  onAiChange: (patch: { aiModelSummary?: string | null; aiModelProgress?: string | null; aiModelExtract?: string | null; aiMaxTokensPerRequest?: number; aiRateLimitRpm?: number; aiDailyTokenBudget?: number }) => void;
+  onAiChange: (patch: { aiModelSummary?: string | null; aiModelProgress?: string | null; aiModelExtract?: string | null; aiModelRelease?: string | null; aiMaxTokensPerRequest?: number; aiRateLimitRpm?: number; aiDailyTokenBudget?: number }) => void;
   onOpenFilter: (rect: DOMRect) => void;
   onNewIssue: () => void;
   filterActive: boolean;

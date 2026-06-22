@@ -29,6 +29,7 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
   aiModelSummary: null,
   aiModelProgress: null,
   aiModelExtract: null,
+  aiModelRelease: null,
   aiMaxTokensPerRequest: 0,
   aiRateLimitRpm: 0,
   aiDailyTokenBudget: 0,
@@ -55,6 +56,7 @@ export interface ConfigPatch {
   aiModelSummary?: string | null;
   aiModelProgress?: string | null;
   aiModelExtract?: string | null;
+  aiModelRelease?: string | null;
   aiMaxTokensPerRequest?: number;
   aiRateLimitRpm?: number;
   aiDailyTokenBudget?: number;
@@ -118,6 +120,7 @@ export function useConfig(onError?: (msg: string) => void): UseConfigResult {
         aiModelSummary: patch.aiModelSummary !== undefined ? patch.aiModelSummary : prev.aiModelSummary,
         aiModelProgress: patch.aiModelProgress !== undefined ? patch.aiModelProgress : prev.aiModelProgress,
         aiModelExtract: patch.aiModelExtract !== undefined ? patch.aiModelExtract : prev.aiModelExtract,
+        aiModelRelease: patch.aiModelRelease !== undefined ? patch.aiModelRelease : prev.aiModelRelease,
         aiMaxTokensPerRequest: patch.aiMaxTokensPerRequest !== undefined ? patch.aiMaxTokensPerRequest : prev.aiMaxTokensPerRequest,
         aiRateLimitRpm: patch.aiRateLimitRpm !== undefined ? patch.aiRateLimitRpm : prev.aiRateLimitRpm,
         aiDailyTokenBudget: patch.aiDailyTokenBudget !== undefined ? patch.aiDailyTokenBudget : prev.aiDailyTokenBudget,

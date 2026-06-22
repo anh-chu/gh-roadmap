@@ -214,6 +214,16 @@ export function initDb(path: string): Database.Database {
       generated_at  TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS milestone_notes (
+      workspace_id  INTEGER NOT NULL,
+      title         TEXT NOT NULL,
+      content       TEXT NOT NULL,
+      model         TEXT NOT NULL,
+      source_hash   TEXT NOT NULL,
+      generated_at  TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, title)
+    );
+
     CREATE TABLE IF NOT EXISTS insights (
       path           TEXT PRIMARY KEY,
       slug           TEXT NOT NULL,
@@ -334,6 +344,7 @@ export function initDb(path: string): Database.Database {
       ai_model_summary        TEXT,
       ai_model_progress       TEXT,
       ai_model_extract        TEXT,
+      ai_model_release        TEXT,
       ai_max_tokens_per_request INTEGER NOT NULL DEFAULT 0,
       ai_rate_limit_rpm         INTEGER NOT NULL DEFAULT 0,
       ai_daily_token_budget     INTEGER NOT NULL DEFAULT 0,
@@ -467,6 +478,9 @@ export function initDb(path: string): Database.Database {
   }
   if (!wcColNames.has("ai_model_extract")) {
     db.exec("ALTER TABLE workspace_config ADD COLUMN ai_model_extract TEXT");
+  }
+  if (!wcColNames.has("ai_model_release")) {
+    db.exec("ALTER TABLE workspace_config ADD COLUMN ai_model_release TEXT");
   }
   if (!wcColNames.has("ai_max_tokens_per_request")) {
     db.exec("ALTER TABLE workspace_config ADD COLUMN ai_max_tokens_per_request INTEGER NOT NULL DEFAULT 0");
@@ -605,6 +619,7 @@ export function initDb(path: string): Database.Database {
             ai_model_summary        TEXT,
             ai_model_progress       TEXT,
             ai_model_extract        TEXT,
+            ai_model_release        TEXT,
             updated_at              TEXT NOT NULL
           );
           INSERT INTO workspace_config_new (
@@ -616,7 +631,7 @@ export function initDb(path: string): Database.Database {
             flow_stall_days, flow_cold_days, flow_fresh_days,
             predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days,
             predict_promise_confidence_min, predict_reply_overdue_hours,
-            pod_last_seen_at, ai_model_summary, ai_model_progress, ai_model_extract, updated_at
+            pod_last_seen_at, ai_model_summary, ai_model_progress, ai_model_extract, ai_model_release, updated_at
           )
           SELECT
             id, 'mht', 'MHT', NULL,
@@ -627,7 +642,7 @@ export function initDb(path: string): Database.Database {
             flow_stall_days, flow_cold_days, flow_fresh_days,
             predict_pr_stale_days, predict_pr_min_age, predict_review_wait_days,
             predict_promise_confidence_min, predict_reply_overdue_hours,
-            pod_last_seen_at, ai_model_summary, ai_model_progress, ai_model_extract, updated_at
+            pod_last_seen_at, ai_model_summary, ai_model_progress, ai_model_extract, ai_model_release, updated_at
           FROM workspace_config;
           DROP TABLE workspace_config;
           ALTER TABLE workspace_config_new RENAME TO workspace_config;

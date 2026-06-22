@@ -5,7 +5,7 @@ import { canEdit } from "../lib/role";
 import { HelpPopover } from "./HelpPopover";
 
 export type FilterKey = "all" | "mine";
-export type TabKey = "roadmap" | "list" | "kanban" | "insights" | "accounts" | "progress";
+export type TabKey = "roadmap" | "list" | "kanban" | "milestones" | "insights" | "accounts" | "progress";
 
 interface ToolbarProps {
   filter: FilterKey;
@@ -297,6 +297,10 @@ export function Toolbar(props: ToolbarProps): JSX.Element {
           <button className={"tab" + (tab === "kanban" ? " active" : "")} onClick={() => onTab("kanban")}>
             <svg className="icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="3.2" height="10" rx="0.6" stroke="currentColor" strokeWidth="1.4"/><rect x="6.4" y="3" width="3.2" height="7" rx="0.6" stroke="currentColor" strokeWidth="1.4"/><rect x="10.8" y="3" width="3.2" height="12" rx="0.6" stroke="currentColor" strokeWidth="1.4"/></svg>
             Kanban
+          </button>
+          <button className={"tab" + (tab === "milestones" ? " active" : "")} onClick={() => onTab("milestones")}>
+            <svg className="icon" viewBox="0 0 16 16" fill="none"><path d="M3 2.5v11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M3 3.5h8.5l-1.8 2.2 1.8 2.2H3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinejoin="round"/></svg>
+            Milestones
           </button>
           <button className={"tab" + (tab === "insights" ? " active" : "")} onClick={() => onTab("insights")}>
             <svg className="icon" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="9" height="11" rx="1" stroke="currentColor" strokeWidth="1.4"/><path d="M5 6h4M5 8.5h4M5 11h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="12" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.3"/><path d="M13.6 13.6 L15 15" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>

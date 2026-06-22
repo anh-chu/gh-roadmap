@@ -88,6 +88,7 @@ export interface WorkspaceConfig {
   aiModelSummary: string | null;
   aiModelProgress: string | null;
   aiModelExtract: string | null;
+  aiModelRelease: string | null;
   // AI cost controls (admin-only). 0 = disabled/unlimited for each.
   aiMaxTokensPerRequest: number; // max_tokens cap injected into every completion
   aiRateLimitRpm: number;        // max successful AI requests per rolling 60s (per-workspace)
@@ -701,6 +702,14 @@ export interface AccountCaresAboutIssue {
 }
 
 export interface AccountAiRead {
+  content: string;
+  model: string;
+  generatedAt: string;
+  fromCache: boolean;
+}
+
+// AI-generated, stakeholder-facing release notes for a milestone (derived from its closed issues).
+export interface MilestoneNotes {
   content: string;
   model: string;
   generatedAt: string;

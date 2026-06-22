@@ -585,6 +585,22 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         post: op("ai", "refreshAiProgress", "Force-regenerate Progress AI read.", { responses: ok({ $ref: "#/components/schemas/AiBlock" }), "x-side-effects": true, "x-ai-call": true }),
       },
 
+      "/api/ai/milestone-notes/{title}": {
+        get: op("ai", "getMilestoneNotes", "Read cached or freshly generated stakeholder release notes for a milestone (derived from its closed issues).", {
+          parameters: [param("title", "Milestone title", { type: "string" })],
+          responses: ok({ $ref: "#/components/schemas/AiBlock" }),
+          "x-ai-call": true,
+        }),
+      },
+      "/api/ai/milestone-notes/{title}/refresh": {
+        post: op("ai", "refreshMilestoneNotes", "Force-regenerate milestone release notes.", {
+          parameters: [param("title", "Milestone title", { type: "string" })],
+          responses: ok({ $ref: "#/components/schemas/AiBlock" }),
+          "x-side-effects": true,
+          "x-ai-call": true,
+        }),
+      },
+
       "/api/pm-actions": {
         get: op("pmActions", "getPmActions", "List items needing PM craft work (spec depth, release artifacts, a decision). Deterministic detectors; AI-ranked when configured, raw detector output otherwise.", { responses: ok({ $ref: "#/components/schemas/PmActionsResponse" }) }),
       },

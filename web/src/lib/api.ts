@@ -26,6 +26,7 @@ import type {
   ApiPull,
   AiProgress,
   AiSummary,
+  MilestoneNotes,
   BriefChanges,
   BriefSnapshot,
   FlowResultMap,
@@ -233,6 +234,7 @@ export async function patchConfig(payload: {
   aiModelSummary?: string | null;
   aiModelProgress?: string | null;
   aiModelExtract?: string | null;
+  aiModelRelease?: string | null;
 }): Promise<WorkspaceConfig> {
   const r = await fetch("/api/config", {
     method: "PATCH",
@@ -372,6 +374,16 @@ export async function fetchIssueSummary(num: number): Promise<AiSummary | null> 
 export async function refreshIssueSummary(num: number): Promise<AiSummary | null> {
   const r = await fetch(`/api/ai/issue-summary/${num}/refresh`, { method: "POST" });
   return jsonOrNullOn503<AiSummary>(r);
+}
+
+export async function fetchMilestoneNotes(title: string): Promise<MilestoneNotes | null> {
+  const r = await fetch(`/api/ai/milestone-notes/${encodeURIComponent(title)}`);
+  return jsonOrNullOn503<MilestoneNotes>(r);
+}
+
+export async function refreshMilestoneNotes(title: string): Promise<MilestoneNotes | null> {
+  const r = await fetch(`/api/ai/milestone-notes/${encodeURIComponent(title)}/refresh`, { method: "POST" });
+  return jsonOrNullOn503<MilestoneNotes>(r);
 }
 
 export async function fetchAiProgress(): Promise<AiProgress | null> {

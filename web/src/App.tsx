@@ -8,6 +8,7 @@ import { Drawer } from "./components/Drawer";
 import { Progress } from "./components/Progress";
 import { List } from "./components/List";
 import { Kanban } from "./components/Kanban";
+import { Milestones } from "./components/Milestones";
 import { Insights } from "./components/Insights";
 import { Accounts } from "./components/Accounts";
 import { AccountDrawer } from "./components/AccountDrawer";
@@ -39,7 +40,7 @@ const FLOW_WITH_PR: ReadonlySet<FlowState> = new Set<FlowState>([
   "in-code",
 ]);
 
-const TABS: readonly TabKey[] = ["roadmap", "list", "kanban", "insights", "accounts", "progress"];
+const TABS: readonly TabKey[] = ["roadmap", "list", "kanban", "milestones", "insights", "accounts", "progress"];
 function tabFromHash(): TabKey {
   const h = window.location.hash.replace(/^#/, "") as TabKey;
   return TABS.includes(h) ? h : "roadmap";
@@ -344,6 +345,8 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
         <div className="app-content">
           {tab === "progress" ? (
             <Progress issues={issues} meta={meta} onOpen={handleOpen} />
+          ) : tab === "milestones" ? (
+            <Milestones issues={issues} flow={flow} insightCounts={insightCounts} onOpen={handleOpen} onToast={(m) => toast.show(m)} />
           ) : tab === "insights" ? (
             <Insights issuesByNum={issuesByNum} onOpenIssue={handleOpen} onOpenAccount={openAccount} />
           ) : tab === "accounts" ? (

@@ -6,11 +6,13 @@ import {
   aiModel,
   analyzeProgress,
   isAiEnabled,
+  releaseNotes,
   summarizeIssue,
   type IssueSummaryComment,
   type IssueSummaryInput,
   type IssueSummaryPull,
   type ProgressInput,
+  type ReleaseNotesIssue,
 } from "../ai.js";
 import {
   computeAtRisk,
@@ -24,7 +26,13 @@ import {
   type FlowInput,
   type FlowThresholdsResolved,
 } from "../flow.js";
-import type { AiProgress, AiSummary, EffortRating, FlowState } from "../../../shared/types.js";
+import type {
+  AiProgress,
+  AiSummary,
+  EffortRating,
+  FlowState,
+  MilestoneNotes,
+} from "../../../shared/types.js";
 
 interface IssueRow {
   number: number;
@@ -429,6 +437,131 @@ async function generateAndStoreProgress(workspaceId: number): Promise<AiProgress
   return { analysis, model, generatedAt, fromCache: false };
 }
 
+// ─────────────── MILESTONE RELEASE NOTES ───────────────
+
+interface MilestoneIssueRow {
+  number: number;
+  title: string;
+  body: string | null;
+  labels: string;
+  updated_at: string;
+  milestone_due: string | null;
+}
+
+interface MilestoneNotesCacheRow {
+  content: string;
+  model: string;
+  source_hash: string;
+  generated_at: string;
+}
+
+interface MergedPullRow {
+  title: string;
+  linked_issues: string;
+}
+
+// Map issue number → titles of MERGED PRs linked to it. Concrete "what shipped".
+function mergedPrTitlesByIssue(): Map<number, string[]> {
+  const rows = db()
+    .prepare("SELECT title, linked_issues FROM pulls WHERE merged = 1")
+    .all() as MergedPullRow[];
+  const map = new Map<number, string[]>();
+  for (const p of rows) {
+    let linked: number[] = [];
+    try {
+      const parsed = JSON.parse(p.linked_issues) as unknown;
+      if (Array.isArray(parsed)) linked = parsed.filter((x): x is number => typeof x === "number");
+    } catch {
+      /* ignore */
+    }
+    for (const n of linked) {
+      const arr = map.get(n);
+      if (arr) arr.push(p.title);
+      else map.set(n, [p.title]);
+    }
+  }
+  return map;
+}
+
+// Load the master-filtered CLOSED issues that make up a milestone, plus its due date.
+// Returns null when the milestone has no in-scope shipped issues (nothing to write about).
+function loadMilestoneShipped(
+  title: string,
+  workspaceId: number,
+): { issues: ReleaseNotesIssue[]; rows: MilestoneIssueRow[]; dueOn: string | null } | null {
+  const rows = db()
+    .prepare(
+      "SELECT number, title, body, labels, updated_at, milestone_due FROM issues WHERE milestone = ? AND state = 'closed' ORDER BY number ASC",
+    )
+    .all(title) as MilestoneIssueRow[];
+  const mf = getMasterFilter(workspaceId);
+  const prTitles = mergedPrTitlesByIssue();
+  const issues: ReleaseNotesIssue[] = [];
+  const kept: MilestoneIssueRow[] = [];
+  let dueOn: string | null = null;
+  for (const r of rows) {
+    let labels: string[] = [];
+    try {
+      const parsed = JSON.parse(r.labels) as unknown;
+      if (Array.isArray(parsed)) labels = parsed.filter((x): x is string => typeof x === "string");
+    } catch {
+      /* ignore */
+    }
+    if (!passesMasterFilter(labels, mf)) continue;
+    if (!dueOn && r.milestone_due) dueOn = r.milestone_due;
+    kept.push(r);
+    issues.push({
+      number: r.number,
+      title: r.title,
+      body: r.body,
+      labels,
+      mergedPrs: prTitles.get(r.number) ?? [],
+    });
+  }
+  if (issues.length === 0) return null;
+  return { issues, rows: kept, dueOn };
+}
+
+// Hash over the inputs that actually feed the prompt: issue identity + freshness +
+// the merged-PR titles. A newly-merged PR or a changed PR title invalidates the cache
+// even if the issue row's updated_at didn't move.
+function computeMilestoneHash(
+  title: string,
+  dueOn: string | null,
+  rows: MilestoneIssueRow[],
+  issues: ReleaseNotesIssue[],
+): string {
+  const byNum = new Map(issues.map((i) => [i.number, i.mergedPrs]));
+  const parts = rows
+    .map((r) => `${r.number}:${r.updated_at}:${(byNum.get(r.number) ?? []).join("~")}`)
+    .join("|");
+  return sha256(`${title}|${dueOn ?? ""}|${parts}`);
+}
+
+async function generateAndStoreMilestoneNotes(
+  title: string,
+  workspaceId: number,
+): Promise<MilestoneNotes | null> {
+  const loaded = loadMilestoneShipped(title, workspaceId);
+  if (!loaded) return null;
+  const { issues, rows, dueOn } = loaded;
+  const hash = computeMilestoneHash(title, dueOn, rows, issues);
+  const { content, model } = await releaseNotes({ milestone: title, dueOn, issues }, workspaceId);
+  const generatedAt = new Date().toISOString();
+  db()
+    .prepare(
+      `INSERT INTO milestone_notes(workspace_id, title, content, model, source_hash, generated_at)
+       VALUES(?,?,?,?,?,?)
+       ON CONFLICT(workspace_id, title) DO UPDATE SET
+         content=excluded.content,
+         model=excluded.model,
+         source_hash=excluded.source_hash,
+         generated_at=excluded.generated_at`,
+    )
+    .run(workspaceId, title, content, model, hash, generatedAt);
+  return { content, model, generatedAt, fromCache: false };
+}
+
 const PROGRESS_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function aiRoutes(app: FastifyInstance): Promise<void> {
@@ -560,6 +693,76 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         req.log.error({ err }, "ai progress refresh failed");
         reply.code(503).send({
           error: "ai progress failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+    },
+  );
+
+  app.get<{ Params: { title: string } }>(
+    "/api/ai/milestone-notes/:title",
+    async (req, reply): Promise<MilestoneNotes | undefined> => {
+      if (!isAiEnabled(req.workspaceId)) {
+        disabled(reply, req.workspaceId);
+        return;
+      }
+      const title = req.params.title;
+      const loaded = loadMilestoneShipped(title, req.workspaceId);
+      if (!loaded) {
+        reply.code(404).send({ error: "no shipped issues for this milestone" });
+        return;
+      }
+      const hash = computeMilestoneHash(title, loaded.dueOn, loaded.rows, loaded.issues);
+      const cached = db()
+        .prepare(
+          "SELECT content, model, source_hash, generated_at FROM milestone_notes WHERE workspace_id = ? AND title = ?",
+        )
+        .get(req.workspaceId, title) as MilestoneNotesCacheRow | undefined;
+      if (cached && cached.source_hash === hash) {
+        return {
+          content: cached.content,
+          model: cached.model,
+          generatedAt: cached.generated_at,
+          fromCache: true,
+        };
+      }
+      try {
+        const result = await generateAndStoreMilestoneNotes(title, req.workspaceId);
+        if (!result) {
+          reply.code(404).send({ error: "no shipped issues for this milestone" });
+          return;
+        }
+        return result;
+      } catch (err) {
+        req.log.error({ err }, "ai milestone notes failed");
+        reply.code(503).send({
+          error: "ai milestone notes failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+    },
+  );
+
+  app.post<{ Params: { title: string } }>(
+    "/api/ai/milestone-notes/:title/refresh",
+    async (req, reply): Promise<MilestoneNotes | undefined> => {
+      if (!isAiEnabled(req.workspaceId)) {
+        disabled(reply, req.workspaceId);
+        return;
+      }
+      try {
+        const result = await generateAndStoreMilestoneNotes(req.params.title, req.workspaceId);
+        if (!result) {
+          reply.code(404).send({ error: "no shipped issues for this milestone" });
+          return;
+        }
+        return result;
+      } catch (err) {
+        req.log.error({ err }, "ai milestone notes refresh failed");
+        reply.code(503).send({
+          error: "ai milestone notes failed",
           detail: err instanceof Error ? err.message : String(err),
         });
         return;
