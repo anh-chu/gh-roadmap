@@ -1534,6 +1534,33 @@ a.d-num:hover {
   line-height: 1.5;
 }
 
+.comment .text > *:first-child {
+  margin-top: 0;
+}
+
+.comment .text > *:last-child {
+  margin-bottom: 0;
+}
+
+.comment .text p {
+  margin: 0 0 6px;
+}
+
+.comment .text ul,
+.comment .text ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+
+.comment .text pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment .text code {
+  font-size: 12px;
+}
+
 .d-foot {
   border-top: 1px solid var(--border);
   padding: 12px 16px;
