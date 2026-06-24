@@ -839,6 +839,17 @@ button.av {
 .cell.last-row {
   border-bottom: none;
 }
+/* Empty bucket rows (no card in any visible column) collapse to a thin spine,
+   still droppable. Split mode also shrinks the row track (see Board.tsx). */
+.cell.empty-row {
+  min-height: 40px;
+}
+.bucket-label.empty-row {
+  padding: 8px 16px;
+}
+.bucket-label.empty-row .nums {
+  display: none;
+}
 /* Drop-intent: the hovered cell rings in its tone — orange = writes to GitHub
    (team-visible), teal = status move, green = private planning-only. */
 .cell.drop-target {

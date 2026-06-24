@@ -111,11 +111,12 @@ interface CellProps {
   granularity: RangeGranularity;
   dropHint: DropHint | null;
   collapsed?: boolean;
+  emptyRow?: boolean;
   onCardDragBegin: (bucket: string) => void;
   onCardDragFinish: () => void;
 }
 
-function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity, dropHint, collapsed, onCardDragBegin, onCardDragFinish }: CellProps): JSX.Element {
+function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity, dropHint, collapsed, emptyRow, onCardDragBegin, onCardDragFinish }: CellProps): JSX.Element {
   const isBL = colKey === "backlog";
   const isTD = colKey === "todo";
   const cls =
@@ -124,6 +125,7 @@ function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightC
     (isTD ? " todo-col" : "") +
     (isLast ? " last-row" : "") +
     (collapsed ? " collapsed" : "") +
+    (emptyRow ? " empty-row" : "") +
     (dropHint ? ` drop-${dropHint.tone}` : "");
 
   const onDragOver = (e: DragEvent<HTMLDivElement>): void => {
@@ -247,6 +249,12 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     !c.isCurrent && !c.isTodo && !c.isBacklog && !colHasCards(c.key);
   const timeTrack = timeCols.map((c) => (isCollapsed(c) ? COLLAPSED_W : gridMinWidth(granularity))).join(" ");
 
+  // A bucket row is "empty in view" when no filtered card lands in any rendered
+  // column (off-grid/out-of-range issues don't count). Such rows collapse short.
+  const colKeySet = new Set(cols.map((c) => c.key));
+  const bucketHasCards = (bucket: string): boolean =>
+    issues.some((i) => issueBucket(i, buckets) === bucket && passFilter(i) && colKeySet.has(colKeyForIssue(i)));
+
   // The bucket (row) the in-flight card came from — drives drop-intent hints.
   const [dragSrcBucket, setDragSrcBucket] = useState<string | null>(null);
 
@@ -315,7 +323,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     const total = rowIssues.length;
     const planned = rowIssues.filter((i) => i.month || i.week).length;
     return (
-      <div ref={bucket === nextMilestone ? nextRowRef : undefined} className={"bucket-label" + (isLast ? " last-row" : "")}>
+      <div ref={bucket === nextMilestone ? nextRowRef : undefined} className={"bucket-label" + (isLast ? " last-row" : "") + (bucketHasCards(bucket) ? "" : " empty-row")}>
         <span className="nm">{bucket}</span>
         {buckets.field === "label" && (
           <span className="lbl">{buckets.value}:{bucket}</span>
@@ -335,6 +343,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   }
 
   function renderCells(bucket: string, isLast: boolean, list: BoardCol[]): JSX.Element[] {
+    const emptyRow = !bucketHasCards(bucket);
     return list.map((c) => {
       const cards = issues.filter(
         (i) => issueBucket(i, buckets) === bucket && colKeyForIssue(i) === c.key && passFilter(i),
@@ -354,6 +363,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
           granularity={granularity}
           dropHint={dropIntentFor(bucket, c.key)}
           collapsed={isCollapsed(c)}
+          emptyRow={emptyRow}
           onCardDragBegin={setDragSrcBucket}
           onCardDragFinish={() => setDragSrcBucket(null)}
         />
@@ -395,7 +405,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   const scrollCols = showLabelCol ? `156px ${timeTrack}` : timeTrack;
   const splitStyle: CSSProperties = {
     ["--scroll-cols" as string]: scrollCols,
-    gridTemplateRows: `auto repeat(${rows.length}, minmax(130px, max-content))`,
+    gridTemplateRows: `auto ${rows.map((b) => (bucketHasCards(b) ? "minmax(130px, max-content)" : "minmax(40px, max-content)")).join(" ")}`,
   };
 
   return (
