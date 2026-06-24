@@ -17,6 +17,9 @@ interface CardProps {
   insightCount?: number;
   pulls?: Pull[];
   granularity?: RangeGranularity;
+  // Let the board light up drop-intent hints while this card is in flight.
+  onDragBegin?: () => void;
+  onDragFinish?: () => void;
 }
 
 interface TooltipAnchor {
@@ -27,7 +30,7 @@ interface TooltipAnchor {
 const TOOLTIP_WIDTH = 360;
 const TOOLTIP_OFFSET = 8;
 
-export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granularity }: CardProps): JSX.Element {
+export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granularity, onDragBegin, onDragFinish }: CardProps): JSX.Element {
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const timerRef = useRef<number | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -38,9 +41,11 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
     e.dataTransfer.effectAllowed = "move";
     // Drag and hover-tooltip don't mix.
     cancelHover();
+    onDragBegin?.();
   };
   const onDragEnd = (e: DragEvent<HTMLDivElement>): void => {
     e.currentTarget.classList.remove("dragging");
+    onDragFinish?.();
   };
 
   function cancelHover(): void {

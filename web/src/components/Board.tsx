@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import type { BucketsInfo, FlowResult, Issue, Pull, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import type { BucketChange, MoveTarget } from "../hooks/useIssues";
@@ -80,6 +80,14 @@ function ColHead({ c, count, done }: { c: BoardCol; count: number; done: number 
   );
 }
 
+// What a drop into a given cell will actually do, so the board can say it out
+// loud instead of silently mutating GitHub.
+type DropTone = "github" | "status" | "private";
+interface DropHint {
+  tone: DropTone;
+  label: string;
+}
+
 interface CellProps {
   bucketKey: string;
   colKey: string;
@@ -91,16 +99,20 @@ interface CellProps {
   insightCounts?: Record<number, number>;
   pullsByIssue?: Map<number, Pull[]>;
   granularity: RangeGranularity;
+  dropHint: DropHint | null;
+  onCardDragBegin: (bucket: string) => void;
+  onCardDragFinish: () => void;
 }
 
-function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity }: CellProps): JSX.Element {
+function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity, dropHint, onCardDragBegin, onCardDragFinish }: CellProps): JSX.Element {
   const isBL = colKey === "backlog";
   const isTD = colKey === "todo";
   const cls =
     "cell" +
     (isBL ? " backlog-col" : "") +
     (isTD ? " todo-col" : "") +
-    (isLast ? " last-row" : "");
+    (isLast ? " last-row" : "") +
+    (dropHint ? ` drop-${dropHint.tone}` : "");
 
   const onDragOver = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
@@ -126,7 +138,20 @@ function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightC
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
     >
-      {cards.map((c) => <Card key={c.num} issue={c} onOpen={onOpen} flowResult={flow.get(c.num)} insightCount={insightCounts?.[c.num] ?? 0} pulls={pullsByIssue?.get(c.num)} granularity={granularity} />)}
+      {dropHint && <div className="drop-hint">{dropHint.label}</div>}
+      {cards.map((c) => (
+        <Card
+          key={c.num}
+          issue={c}
+          onOpen={onOpen}
+          flowResult={flow.get(c.num)}
+          insightCount={insightCounts?.[c.num] ?? 0}
+          pulls={pullsByIssue?.get(c.num)}
+          granularity={granularity}
+          onDragBegin={() => onCardDragBegin(bucketKey)}
+          onDragFinish={onCardDragFinish}
+        />
+      ))}
     </div>
   );
 }
@@ -153,6 +178,29 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
   const rows: string[] = buckets.field === "none" ? ["__all__"] : buckets.options;
   const showLabelCol = buckets.field !== "none";
+
+  // The bucket (row) the in-flight card came from — drives drop-intent hints.
+  const [dragSrcBucket, setDragSrcBucket] = useState<string | null>(null);
+
+  // What a drop into (bucket, colKey) will actually do. A cross-bucket move in
+  // label/assignee/milestone mode is a real GitHub mutation the whole team sees;
+  // a horizontal time move is app-only. Say so before the drop, not after.
+  function dropIntentFor(bucket: string, colKey: string): DropHint | null {
+    if (dragSrcBucket === null) return null;
+    if (buckets.field !== "none" && bucket !== dragSrcBucket) {
+      const what =
+        buckets.field === "label"
+          ? `${buckets.value}:${bucket}`
+          : buckets.field === "assignee"
+            ? `assignee → ${bucket === NO_MILESTONE ? "none" : bucket}`
+            : `milestone → ${bucket === NO_MILESTONE ? "none" : bucket}`;
+      return { tone: "github", label: `Writes ${what} to GitHub · visible to team` };
+    }
+    if (colKey === "todo" || colKey === "backlog") {
+      return { tone: "status", label: `Moves to ${colKey === "todo" ? "To Do" : "Backlog"}` };
+    }
+    return { tone: "private", label: "Planning only · private" };
+  }
 
   // Translate a drop-target column key into the placement MoveTarget.
   function targetForCol(colKey: string): MoveTarget {
@@ -236,6 +284,9 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
           insightCounts={insightCounts}
           pullsByIssue={pullsByIssue}
           granularity={granularity}
+          dropHint={dropIntentFor(bucket, c.key)}
+          onCardDragBegin={setDragSrcBucket}
+          onCardDragFinish={() => setDragSrcBucket(null)}
         />
       );
     });
