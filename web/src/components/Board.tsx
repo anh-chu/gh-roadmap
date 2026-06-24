@@ -178,17 +178,19 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
   // For each issue, derive its column key under the active granularity.
   // TODO/Backlog placement reads the GitHub Projects Status (single source of
-  // truth; isTodo is deprecated): Todo status overrides everything; then planned
-  // date → time col; then Backlog status; else off-grid (status unset = untriaged).
+  // truth; isTodo is deprecated): a planned date wins → time col (so a milestone-
+  // snapped item leaves its meta column); then Todo status → TODO; then Backlog
+  // status; else off-grid (status unset = untriaged). The meta columns hold only
+  // items with no planned date — TODO = parked/not-yet-plannable.
   function colKeyForIssue(i: Issue): string {
     if (!projectPinned) {
       // Legacy model (no pinned project): is_todo drives TODO, unplanned → Backlog.
       if (i.isTodo) return "todo";
       return issueColumnKey(granularity, i.month, i.week) ?? "backlog";
     }
-    if (i.projectStatus === config.todoStatusName) return "todo";
     const timeKey = issueColumnKey(granularity, i.month, i.week);
     if (timeKey) return timeKey;
+    if (i.projectStatus === config.todoStatusName) return "todo";
     return i.projectStatus === config.backlogStatusName ? "backlog" : "untriaged";
   }
 

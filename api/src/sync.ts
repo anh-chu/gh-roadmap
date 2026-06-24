@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import { db, getKv, setKv } from "./db.js";
 import { upsertSnapshot } from "./health.js";
 import { listWorkspaces } from "./workspace.js";
-import { refreshPinnedProject } from "./routes/projects.js";
+import { getMasterFilter, masterFilterSql } from "./masterFilter.js";
+import { refreshPinnedProject, projectFilter } from "./routes/projects.js";
+import { getRepoSlug } from "./github.js";
 import {
   fetchAllIssues,
   fetchAllPulls,
@@ -296,6 +298,50 @@ export async function reconcile(): Promise<{
     mtx();
   } catch (err) {
     console.error("milestone due reconcile failed", err);
+  }
+
+  // Milestone → planning snap: while an open issue sits in the TODO or Backlog status
+  // and carries a GitHub milestone due, the milestone is authoritative for its timeline
+  // position — its planned_month is (re)written to the milestone's month every sync,
+  // overriding manual month drags. The PM takes ownership by moving it off TODO/Backlog
+  // status (then placement reads its own planned date). Requires a pinned project
+  // (status_label source); no-op otherwise. Per-workspace, master-filter scoped
+  // (planned dates are per-workspace).
+  try {
+    const pin = projectFilter();
+    if (pin !== null) {
+      const now = new Date().toISOString();
+      const slug = getRepoSlug() ?? "";
+      for (const ws of listWorkspaces()) {
+        if (ws.archivedAt) continue;
+        const statusRow = db()
+          .prepare("SELECT todo_status_name, backlog_status_name FROM workspace_config WHERE id = ?")
+          .get(ws.id) as { todo_status_name: string; backlog_status_name: string } | undefined;
+        if (!statusRow) continue;
+        const mf = masterFilterSql(getMasterFilter(ws.id), "i");
+        db()
+          .prepare(
+            `INSERT INTO roadmap_meta(workspace_id, issue_number, planned_month, planned_week, app_updated_at)
+             SELECT ?, i.number, substr(i.milestone_due, 1, 7), NULL, ?
+             FROM issues i
+             JOIN project_items p ON p.content_number = i.number AND p.content_type = 'Issue'
+               AND p.project_number = ${pin} AND (p.content_repo = ? OR p.content_repo IS NULL)
+             WHERE i.milestone_due IS NOT NULL
+               AND i.state = 'open'
+               AND p.status_label IN (?, ?)
+               ${mf ? `AND ${mf.sql}` : ""}
+             ON CONFLICT(workspace_id, issue_number) DO UPDATE SET
+               planned_month = excluded.planned_month,
+               planned_week = NULL,
+               app_updated_at = excluded.app_updated_at
+             WHERE roadmap_meta.planned_month IS NOT excluded.planned_month
+                OR roadmap_meta.planned_week IS NOT NULL`,
+          )
+          .run(ws.id, now, slug, statusRow.todo_status_name, statusRow.backlog_status_name, ...(mf?.params ?? []));
+      }
+    }
+  } catch (err) {
+    console.error("milestone planning snap failed", err);
   }
 
   // Pinned-project refresh: project_items otherwise only refresh when the Kanban

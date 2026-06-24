@@ -213,8 +213,8 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
 
       // Board Status write (GitHub mutation, optimistic). `undefined` = no write.
       // Dropping into TODO/Backlog sets the matching Status option; dropping a
-      // meta-column card onto a time column clears Status so placement (where
-      // Todo status overrides planned dates) doesn't snap the card back.
+      // meta-column card onto a time column clears Status so the card isn't left
+      // both planned and TODO/Backlog-statused.
       let statusWrite: string | null | undefined;
       if (status) {
         if (target.kind === "todo") statusWrite = status.todo;
