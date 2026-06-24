@@ -12,6 +12,7 @@ import { Milestones } from "./components/Milestones";
 import { Insights } from "./components/Insights";
 import { Accounts } from "./components/Accounts";
 import { AccountDrawer } from "./components/AccountDrawer";
+import { CommandPalette } from "./components/CommandPalette";
 import { useIssueInsightCounts } from "./hooks/useIssueInsightCounts";
 import { postSync, setGithubConnectHandler, type GithubConnectReason } from "./lib/api";
 import { GithubConnectModal } from "./components/GithubConnectModal";
@@ -73,6 +74,17 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  // Global ⌘K / Ctrl-K opens the command palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdkOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Project data lives at App level so it survives tab switches (Kanban → other → Kanban
   // no longer blanks). Lazy-enabled: only starts fetching once user has visited Kanban.
   const [kanbanVisited, setKanbanVisited] = useState(tab === "kanban");
@@ -86,6 +98,7 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
   const openAccount = useCallback((slug: string) => setOpenAccountSlug(slug), []);
   const [richFilter, setRichFilter] = useState<RichFilter>(DEFAULT_RICH_FILTER);
   const [showNewIssue, setShowNewIssue] = useState(false);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
   const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
   const [syncing, setSyncing] = useState(false);
   // GitHub write-identity gate (layer 3): one app-level Connect prompt, raised by the
@@ -446,6 +459,15 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
         onClose={() => setFilterAnchor(null)}
       />
       <GithubConnectModal reason={ghConnectReason} onClose={() => setGhConnectReason(null)} />
+      <CommandPalette
+        open={cmdkOpen}
+        onClose={() => setCmdkOpen(false)}
+        issues={issues}
+        onOpenIssue={handleOpen}
+        onOpenAccount={openAccount}
+        onTab={setTab}
+        onNewIssue={() => setShowNewIssue(true)}
+      />
       {toastNode}
     </>
   );
