@@ -774,6 +774,7 @@ button.av {
   position: sticky;
   left: 0;
   z-index: 3;
+  scroll-margin-top: 64px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -841,7 +842,11 @@ button.av {
 /* Drop-intent: the hovered cell rings in its tone — orange = writes to GitHub
    (team-visible), teal = status move, green = private planning-only. */
 .cell.drop-target {
-  background: color-mix(in srgb, var(--drop-color, var(--accent)) 9%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--drop-color, var(--accent)) 9%,
+    transparent
+  );
   box-shadow: inset 0 0 0 2px var(--drop-color, var(--accent));
 }
 .cell.drop-github {
@@ -872,7 +877,8 @@ button.av {
   border-radius: var(--r-sm);
   color: var(--drop-color, var(--accent));
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--drop-color, var(--accent)) 45%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--drop-color, var(--accent)) 45%, transparent);
   box-shadow: var(--shadow-1);
   pointer-events: none;
 }
@@ -4435,19 +4441,33 @@ button.insight-account-chip:hover {
 .card-pr-chip {
   color: var(--ink-3);
 }
-.card-pr-chip.pr-state-open { color: var(--n); }
-.card-pr-chip.pr-state-draft { color: var(--ink-4); }
-.card-pr-chip.pr-state-merged { color: var(--purple); }
-.card-pr-chip.pr-state-closed { color: var(--r); }
+.card-pr-chip.pr-state-open {
+  color: var(--n);
+}
+.card-pr-chip.pr-state-draft {
+  color: var(--ink-4);
+}
+.card-pr-chip.pr-state-merged {
+  color: var(--purple);
+}
+.card-pr-chip.pr-state-closed {
+  color: var(--r);
+}
 .card-pr-ci {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   display: inline-block;
 }
-.card-pr-ci.pr-ci-success { background: var(--green); }
-.card-pr-ci.pr-ci-failure { background: var(--r); }
-.card-pr-ci.pr-ci-pending { background: var(--e); }
+.card-pr-ci.pr-ci-success {
+  background: var(--green);
+}
+.card-pr-ci.pr-ci-failure {
+  background: var(--r);
+}
+.card-pr-ci.pr-ci-pending {
+  background: var(--e);
+}
 
 /* Drawer linked-PR sub-panel */
 .d-linked-prs {
@@ -4470,8 +4490,13 @@ button.insight-account-chip:hover {
   font-size: 12px;
   min-width: 0;
 }
-.pr-row .pr-link { text-decoration: none; }
-.pr-row .pr-num { font-weight: 600; color: var(--ink-2); }
+.pr-row .pr-link {
+  text-decoration: none;
+}
+.pr-row .pr-num {
+  font-weight: 600;
+  color: var(--ink-2);
+}
 .pr-repo {
   font-size: 10px;
   padding: 1px 6px;
@@ -4487,22 +4512,51 @@ button.insight-account-chip:hover {
   border: 1px solid var(--border);
   white-space: nowrap;
 }
-.pr-state-open { color: var(--n); border-color: var(--n); }
-.pr-state-draft { color: var(--ink-3); }
-.pr-state-merged { color: var(--purple); border-color: var(--purple); }
-.pr-state-closed { color: var(--r); border-color: var(--r); }
+.pr-state-open {
+  color: var(--n);
+  border-color: var(--n);
+}
+.pr-state-draft {
+  color: var(--ink-3);
+}
+.pr-state-merged {
+  color: var(--purple);
+  border-color: var(--purple);
+}
+.pr-state-closed {
+  color: var(--r);
+  border-color: var(--r);
+}
 .pr-badge {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 999px;
   white-space: nowrap;
 }
-.pr-ci-success { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
-.pr-ci-failure { color: var(--r); background: color-mix(in srgb, var(--r) 14%, transparent); }
-.pr-ci-pending { color: var(--e); background: color-mix(in srgb, var(--e) 14%, transparent); }
-.pr-review-approved { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
-.pr-review-changes_requested { color: var(--r); background: color-mix(in srgb, var(--r) 14%, transparent); }
-.pr-review-commented { color: var(--ink-3); background: var(--surface-2); }
+.pr-ci-success {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+.pr-ci-failure {
+  color: var(--r);
+  background: color-mix(in srgb, var(--r) 14%, transparent);
+}
+.pr-ci-pending {
+  color: var(--e);
+  background: color-mix(in srgb, var(--e) 14%, transparent);
+}
+.pr-review-approved {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+.pr-review-changes_requested {
+  color: var(--r);
+  background: color-mix(in srgb, var(--r) 14%, transparent);
+}
+.pr-review-commented {
+  color: var(--ink-3);
+  background: var(--surface-2);
+}
 .pr-title {
   color: var(--ink-3);
   overflow: hidden;
@@ -5302,6 +5356,33 @@ html[data-theme="dark"] .insight-dup-banner {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.ms-passed {
+  margin-top: 18px;
+}
+.ms-passed-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ms-passed-toggle:hover {
+  color: var(--ink-2);
+}
+.ms-passed-toggle .icon {
+  flex: none;
+  transition: transform 0.12s ease;
+}
+.ms-passed-list {
+  margin-top: 10px;
 }
 .ms-aside {
   position: sticky;

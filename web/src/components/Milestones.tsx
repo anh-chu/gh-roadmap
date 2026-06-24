@@ -196,12 +196,14 @@ function MilestoneCard({
   insightCounts,
   issuesByNum,
   onOpen,
+  passed,
 }: {
   rollup: Rollup;
   flow: Map<number, FlowResult>;
   insightCounts: Record<number, number>;
   issuesByNum: Map<number, Issue>;
   onOpen: (i: Issue) => void;
+  passed?: boolean;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const r = rollup;
@@ -230,6 +232,11 @@ function MilestoneCard({
           {r.atRisk.length > 0 && (
             <span className="ms-atrisk-flag" title={`${r.atRisk.length} at-risk`}>
               ⚠ {r.atRisk.length}
+            </span>
+          )}
+          {passed && r.open > 0 && (
+            <span className="ms-atrisk-flag" title={`${r.open} unclosed`}>
+              ⚠ {r.open} open
             </span>
           )}
         </div>
@@ -274,6 +281,15 @@ export function Milestones({ issues, flow, insightCounts, onOpen, onToast }: Mil
   const rollups = useMemo(() => buildRollups(issues, flow, Date.now()), [issues, flow]);
   const real = rollups.filter((r) => r.title !== null);
   const issuesByNum = useMemo(() => new Map(issues.map((i) => [i.num, i])), [issues]);
+  const [showPassed, setShowPassed] = useState(false);
+
+  // Passed = a real milestone whose due date is in the past. These clutter the
+  // planning view; fold them away but keep an ⚠ open-count so unfinished ones
+  // stay visible while collapsed.
+  const isPassed = (r: Rollup): boolean => r.title !== null && r.daysToDue !== null && r.daysToDue < 0;
+  const current = rollups.filter((r) => !isPassed(r));
+  const passed = rollups.filter(isPassed);
+  const passedOpenTotal = passed.reduce((n, r) => n + r.open, 0);
 
   const handleCopy = async (): Promise<void> => {
     const digest = buildDigest(rollups);
@@ -307,7 +323,7 @@ export function Milestones({ issues, flow, insightCounts, onOpen, onToast }: Mil
           <span className="ms-toolbar-count">{real.length} milestone{real.length === 1 ? "" : "s"}</span>
         </div>
         <div className="ms-list">
-          {rollups.map((r) => (
+          {current.map((r) => (
             <MilestoneCard
               key={r.title ?? "__none__"}
               rollup={r}
@@ -318,6 +334,36 @@ export function Milestones({ issues, flow, insightCounts, onOpen, onToast }: Mil
             />
           ))}
         </div>
+        {passed.length > 0 && (
+          <div className="ms-passed">
+            <button className="ms-passed-toggle" onClick={() => setShowPassed((s) => !s)}>
+              <svg className="icon" viewBox="0 0 12 12" width="11" height="11" aria-hidden style={{ transform: showPassed ? "rotate(90deg)" : "none" }}>
+                <path d="M4.5 2.5 L8 6 L4.5 9.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>Passed milestone{passed.length === 1 ? "" : "s"} ({passed.length})</span>
+              {passedOpenTotal > 0 && (
+                <span className="ms-atrisk-flag" title={`${passedOpenTotal} unclosed across passed milestones`}>
+                  ⚠ {passedOpenTotal} open
+                </span>
+              )}
+            </button>
+            {showPassed && (
+              <div className="ms-list ms-passed-list">
+                {passed.map((r) => (
+                  <MilestoneCard
+                    key={r.title ?? "__none__"}
+                    rollup={r}
+                    flow={flow}
+                    insightCounts={insightCounts}
+                    issuesByNum={issuesByNum}
+                    onOpen={onOpen}
+                    passed
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <aside className="ms-aside">
         <div className="ms-aside-head">

@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import type { BucketsInfo, FlowResult, Issue, Pull, RangeGranularity, WorkspaceConfig } from "../../../shared/types";
 import type { BucketChange, MoveTarget } from "../hooks/useIssues";
@@ -188,8 +188,56 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   // Pinned mode: time cols in scroll grid, meta cols in pinned grid.
   const cols: BoardCol[] = pinned ? timeCols : [...timeCols, ...metaCols];
 
-  const rows: string[] = buckets.field === "none" ? ["__all__"] : buckets.options;
   const showLabelCol = buckets.field !== "none";
+
+  // Milestone bucketing: rows arrive alphabetically from the server. Re-sort them
+  // by due date (soonest first, undated then no-milestone last) and auto-scroll the
+  // next upcoming milestone to the top so passed ones sit above (scroll up to reach).
+  const byMilestone = buckets.field === "milestone";
+  const dueByMilestone = useMemo(() => {
+    const m = new Map<string, string | null>();
+    if (byMilestone) {
+      for (const i of issues) {
+        if (!i.milestone) continue;
+        if (i.milestoneDue && !m.get(i.milestone)) m.set(i.milestone, i.milestoneDue);
+        else if (!m.has(i.milestone)) m.set(i.milestone, i.milestoneDue ?? null);
+      }
+    }
+    return m;
+  }, [issues, byMilestone]);
+
+  const rows = useMemo<string[]>(() => {
+    const base = buckets.field === "none" ? ["__all__"] : buckets.options;
+    if (!byMilestone) return base;
+    return [...base].sort((a, b) => {
+      if (a === NO_MILESTONE) return 1;
+      if (b === NO_MILESTONE) return -1;
+      const da = dueByMilestone.get(a) ?? null;
+      const db = dueByMilestone.get(b) ?? null;
+      if (da && db) return da.localeCompare(db);
+      if (da) return -1;
+      if (db) return 1;
+      return a.localeCompare(b);
+    });
+  }, [buckets.field, buckets.options, byMilestone, dueByMilestone]);
+
+  const nextMilestone = useMemo(() => {
+    if (!byMilestone) return null;
+    const t0 = new Date().setHours(0, 0, 0, 0);
+    for (const r of rows) {
+      if (r === NO_MILESTONE) continue;
+      const due = dueByMilestone.get(r);
+      if (due && new Date(due).getTime() >= t0) return r;
+    }
+    return null;
+  }, [byMilestone, rows, dueByMilestone]);
+
+  const nextRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (nextMilestone && nextRowRef.current) {
+      nextRowRef.current.scrollIntoView({ block: "start", inline: "nearest" });
+    }
+  }, [nextMilestone]);
 
   // Reclaim board width: empty, non-current time columns collapse to a thin
   // labelled spine so the populated weeks aren't squeezed by empty future ones.
@@ -267,7 +315,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     const total = rowIssues.length;
     const planned = rowIssues.filter((i) => i.month || i.week).length;
     return (
-      <div className={"bucket-label" + (isLast ? " last-row" : "")}>
+      <div ref={bucket === nextMilestone ? nextRowRef : undefined} className={"bucket-label" + (isLast ? " last-row" : "")}>
         <span className="nm">{bucket}</span>
         {buckets.field === "label" && (
           <span className="lbl">{buckets.value}:{bucket}</span>
