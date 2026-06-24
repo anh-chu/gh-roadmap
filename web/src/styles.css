@@ -2081,6 +2081,35 @@ a.d-num:hover {
   font-size: 10px;
   flex: 0 0 auto;
 }
+/* Inline triage — revealed on row hover so the row ends in an action, not a
+   dead link. Reuses the board's move path (optimistic + GitHub-write aware). */
+.hd-risk-actions {
+  display: none;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.hd-risk-row:hover .hd-risk-actions {
+  display: inline-flex;
+}
+.hd-risk-row:hover .hd-risk-reason {
+  display: none;
+}
+.hd-risk-act {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  padding: 3px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.hd-risk-act:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 /* On your plate — PM-action category chips + regenerate affordance */
 .hd-regen {
   font-family: var(--mono);

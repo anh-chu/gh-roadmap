@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { HealthSnapshotSummary, Issue, MetaResponse, PmActionCategory, PmActionItem, RiskItem, ScheduleHealth, ScheduleStatus } from "../../../shared/types";
+import type { MoveTarget } from "../hooks/useIssues";
 import { issueColumnKey, milestoneColumnKey, planPrecision } from "../lib/timeRange";
 import { useHealth } from "../hooks/useHealth";
 import { usePmActions } from "../hooks/usePmActions";
@@ -12,6 +13,8 @@ interface ProgressProps {
   issues: Issue[];
   meta: MetaResponse | null;
   onOpen: (i: Issue) => void;
+  // Triage an at-risk item without leaving Today (reuses the board's move path).
+  onMove?: (num: number, target: MoveTarget) => void;
 }
 
 const RISK_VISIBLE = 8;
@@ -107,7 +110,7 @@ function relativeTime(iso: string | null): string {
   return Math.round(h / 24) + "d ago";
 }
 
-export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
+export function Progress({ issues, meta, onOpen, onMove }: ProgressProps): JSX.Element {
   const { live, history } = useHealth();
 
   const confidence = live?.confidence ?? null;
@@ -219,6 +222,24 @@ export function Progress({ issues, meta, onOpen }: ProgressProps): JSX.Element {
                       )}
                       <span className="hd-risk-title">{r.title}</span>
                       <span className="hd-risk-reason">{r.reason}</span>
+                      {onMove && issue && (
+                        <span className="hd-risk-actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="hd-risk-act"
+                            title="Park in To Do — off the committed plan"
+                            onClick={() => onMove(r.issueNumber, { kind: "todo" })}
+                          >
+                            → To Do
+                          </button>
+                          <button
+                            className="hd-risk-act"
+                            title="Send to Backlog"
+                            onClick={() => onMove(r.issueNumber, { kind: "backlog" })}
+                          >
+                            → Backlog
+                          </button>
+                        </span>
+                      )}
                       <span className="hd-risk-chev">▶</span>
                     </div>
                   );

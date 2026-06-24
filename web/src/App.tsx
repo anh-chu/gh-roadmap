@@ -368,7 +368,7 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
         />
         <div className="app-content">
           {tab === "progress" ? (
-            <Progress issues={issues} meta={meta} onOpen={handleOpen} />
+            <Progress issues={issues} meta={meta} onOpen={handleOpen} onMove={(num, target) => { void handleMove(num, target); }} />
           ) : tab === "milestones" ? (
             <Milestones issues={issues} flow={flow} insightCounts={insightCounts} onOpen={handleOpen} onToast={(m) => toast.show(m)} />
           ) : tab === "insights" ? (
