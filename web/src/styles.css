@@ -2504,6 +2504,22 @@ a.d-num:hover {
   height: 10px;
   min-width: 60px;
 }
+/* "It's working, not broken" — a labeled generating state above the skeleton. */
+.ai-generating {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.ai-generating-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
 .skel-bar-wide {
   display: block;
   width: 80%;

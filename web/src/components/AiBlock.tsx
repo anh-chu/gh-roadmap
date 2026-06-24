@@ -54,6 +54,10 @@ export function AiBlock(props: AiBlockProps): JSX.Element {
       </div>
       {loading && !content ? (
         <div className="ai-content">
+          <div className="ai-generating">
+            <span className="ai-generating-dot" />
+            Generating {label.toLowerCase()}…{model ? ` · ${model}` : ""}
+          </div>
           <div className="skel-bar skel-bar-wide" />
           <div className="skel-bar skel-bar-wide" />
           <div className="skel-bar skel-bar-wide" style={{ width: "60%" }} />
