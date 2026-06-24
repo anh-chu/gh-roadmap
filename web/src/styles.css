@@ -442,6 +442,39 @@ button.av {
   display: inline-block;
   opacity: 0.7;
 }
+.tab-ico {
+  display: inline-flex;
+  align-items: center;
+}
+/* Secondary view toggle (Work: Board/List/Kanban · Customers: Insights/Accounts) */
+.subtabs {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 8px;
+  padding: 3px;
+  background: var(--surface-2);
+  border-radius: 7px;
+}
+.subtab {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.subtab.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+}
+.subtab:hover:not(.active) {
+  color: var(--ink-2);
+}
 
 .flow-legend-wrap {
   display: flex;

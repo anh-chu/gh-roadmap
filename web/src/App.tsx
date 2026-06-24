@@ -44,7 +44,9 @@ const FLOW_WITH_PR: ReadonlySet<FlowState> = new Set<FlowState>([
 const TABS: readonly TabKey[] = ["roadmap", "list", "kanban", "milestones", "insights", "accounts", "progress"];
 function tabFromHash(): TabKey {
   const h = window.location.hash.replace(/^#/, "") as TabKey;
-  return TABS.includes(h) ? h : "roadmap";
+  // Land on Today (the verdict line orients a newcomer instantly) rather than
+  // the dense board.
+  return TABS.includes(h) ? h : "progress";
 }
 
 export function App({ authUser, initialTheme }: { authUser: AuthUser | null; initialTheme: Theme }): JSX.Element {

@@ -7,6 +7,35 @@ import { HelpPopover } from "./HelpPopover";
 export type FilterKey = "all" | "mine";
 export type TabKey = "roadmap" | "list" | "kanban" | "milestones" | "insights" | "accounts" | "progress";
 
+// IA: seven artifacts collapse to the four questions a PM actually asks.
+// Roadmap/List/Kanban are three lenses on the same issues → one "Work" group with
+// a view toggle. Insights/Accounts are one customer axis → "Customers".
+type NavGroup = "today" | "work" | "releases" | "customers";
+
+const PRIMARY_NAV: { group: NavGroup; label: string; landing: TabKey; icon: string }[] = [
+  { group: "today", label: "Today", landing: "progress", icon: '<svg class="icon" viewBox="0 0 16 16" fill="none"><path d="M2 13 L6 7 L9 10 L14 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
+  { group: "work", label: "Work", landing: "roadmap", icon: '<svg class="icon" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 6.5h13M5.5 2.5v11" stroke="currentColor" stroke-width="1.4"/></svg>' },
+  { group: "releases", label: "Releases", landing: "milestones", icon: '<svg class="icon" viewBox="0 0 16 16" fill="none"><path d="M3 2.5v11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3 3.5h8.5l-1.8 2.2 1.8 2.2H3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/></svg>' },
+  { group: "customers", label: "Customers", landing: "insights", icon: '<svg class="icon" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13.5c0-2.485 2.015-4.5 4.5-4.5s4.5 2.015 4.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="6" r="1.8" stroke="currentColor" stroke-width="1.3"/><path d="M12 9c1.657 0 3 1.343 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' },
+];
+
+const WORK_VIEWS: { tab: TabKey; label: string }[] = [
+  { tab: "roadmap", label: "Board" },
+  { tab: "list", label: "List" },
+  { tab: "kanban", label: "Kanban" },
+];
+const CUSTOMER_VIEWS: { tab: TabKey; label: string }[] = [
+  { tab: "insights", label: "Insights" },
+  { tab: "accounts", label: "Accounts" },
+];
+
+function groupOf(tab: TabKey): NavGroup {
+  if (tab === "progress") return "today";
+  if (tab === "milestones") return "releases";
+  if (tab === "insights" || tab === "accounts") return "customers";
+  return "work";
+}
+
 interface ToolbarProps {
   filter: FilterKey;
   onFilter: (f: FilterKey) => void;
@@ -281,40 +310,39 @@ export function Toolbar(props: ToolbarProps): JSX.Element {
   const { filter, onFilter, tab, onTab, search, onSearch, totalShown, config, onConfigChange } = props;
   const showWorkspaceControls = tab === "roadmap" || tab === "list";
   const showRoadmapControls = tab === "roadmap";
+  const group = groupOf(tab);
+  const subTabs = group === "work" ? WORK_VIEWS : group === "customers" ? CUSTOMER_VIEWS : null;
 
   return (
     <div className="toolbar reveal" style={{ animationDelay: "60ms" }}>
       <div className="toolbar-left">
+        {/* Primary nav — four questions a PM asks, not seven artifacts. */}
         <div className="tabs">
-          <button className={"tab" + (tab === "roadmap" ? " active" : "")} onClick={() => onTab("roadmap")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><path d="M1.5 6.5h13M5.5 2.5v11" stroke="currentColor" strokeWidth="1.4"/></svg>
-            Roadmap
-          </button>
-          <button className={"tab" + (tab === "list" ? " active" : "")} onClick={() => onTab("list")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="2.5" rx="0.5" fill="currentColor"/><rect x="2" y="7" width="9" height="2.5" rx="0.5" fill="currentColor"/><rect x="2" y="11" width="11" height="2.5" rx="0.5" fill="currentColor"/></svg>
-            List
-          </button>
-          <button className={"tab" + (tab === "kanban" ? " active" : "")} onClick={() => onTab("kanban")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="3.2" height="10" rx="0.6" stroke="currentColor" strokeWidth="1.4"/><rect x="6.4" y="3" width="3.2" height="7" rx="0.6" stroke="currentColor" strokeWidth="1.4"/><rect x="10.8" y="3" width="3.2" height="12" rx="0.6" stroke="currentColor" strokeWidth="1.4"/></svg>
-            Kanban
-          </button>
-          <button className={"tab" + (tab === "milestones" ? " active" : "")} onClick={() => onTab("milestones")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><path d="M3 2.5v11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M3 3.5h8.5l-1.8 2.2 1.8 2.2H3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinejoin="round"/></svg>
-            Milestones
-          </button>
-          <button className={"tab" + (tab === "insights" ? " active" : "")} onClick={() => onTab("insights")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="9" height="11" rx="1" stroke="currentColor" strokeWidth="1.4"/><path d="M5 6h4M5 8.5h4M5 11h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="12" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.3"/><path d="M13.6 13.6 L15 15" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-            Insights
-          </button>
-          <button className={"tab" + (tab === "accounts" ? " active" : "")} onClick={() => onTab("accounts")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.4"/><path d="M1.5 13.5c0-2.485 2.015-4.5 4.5-4.5s4.5 2.015 4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><circle cx="12" cy="6" r="1.8" stroke="currentColor" strokeWidth="1.3"/><path d="M12 9c1.657 0 3 1.343 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
-            Accounts
-          </button>
-          <button className={"tab" + (tab === "progress" ? " active" : "")} onClick={() => onTab("progress")}>
-            <svg className="icon" viewBox="0 0 16 16" fill="none"><path d="M2 13 L6 7 L9 10 L14 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
-            Progress
-          </button>
+          {PRIMARY_NAV.map((g) => (
+            <button
+              key={g.group}
+              className={"tab" + (group === g.group ? " active" : "")}
+              onClick={() => onTab(g.landing)}
+            >
+              <span className="tab-ico" dangerouslySetInnerHTML={{ __html: g.icon }} />
+              {g.label}
+            </button>
+          ))}
         </div>
+        {/* Secondary view toggle for the groups that hold more than one lens. */}
+        {subTabs && (
+          <div className="subtabs">
+            {subTabs.map((v) => (
+              <button
+                key={v.tab}
+                className={"subtab" + (tab === v.tab ? " active" : "")}
+                onClick={() => onTab(v.tab)}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        )}
         <HelpPopover tab={tab} />
         {showRoadmapControls && <GroupByDropdown config={config} onChange={onConfigChange} />}
         {showRoadmapControls && <RangeControl config={config} onChange={onConfigChange} />}
