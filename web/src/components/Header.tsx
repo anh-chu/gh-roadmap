@@ -33,6 +33,7 @@ interface HeaderProps {
   onAiChange: (patch: { aiModelSummary?: string | null; aiModelProgress?: string | null; aiModelExtract?: string | null; aiModelRelease?: string | null; aiMaxTokensPerRequest?: number; aiRateLimitRpm?: number; aiDailyTokenBudget?: number }) => void;
   onOpenFilter: (rect: DOMRect) => void;
   onNewIssue: () => void;
+  onOpenPalette: () => void;
   filterActive: boolean;
   onSync: () => void;
   syncing: boolean;
@@ -40,7 +41,7 @@ interface HeaderProps {
   onToggleTheme: () => void;
 }
 
-export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiChange, onOpenFilter, onNewIssue, filterActive, onSync, syncing, theme, onToggleTheme }: HeaderProps): JSX.Element {
+export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiChange, onOpenFilter, onNewIssue, onOpenPalette, filterActive, onSync, syncing, theme, onToggleTheme }: HeaderProps): JSX.Element {
   const filterBtnRef = useRef<HTMLButtonElement | null>(null);
   const overflowRef = useRef<HTMLDivElement | null>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -113,6 +114,10 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
       </div>
 
       <div className="head-actions">
+        <button className="btn head-search" onClick={onOpenPalette} aria-label="Search everything" title="Search issues, accounts, pages">
+          <span>Search</span>
+          <span className="kbd">⌘K</span>
+        </button>
         <button
           ref={filterBtnRef}
           className={"btn" + (filterActive ? " has-dot" : "")}

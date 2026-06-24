@@ -323,6 +323,7 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
           }}
           onOpenFilter={(r) => setFilterAnchor(r)}
           onNewIssue={() => setShowNewIssue(true)}
+          onOpenPalette={() => setCmdkOpen(true)}
           filterActive={isRichFilterActive(richFilter)}
           onSync={handleSync}
           syncing={syncing}
