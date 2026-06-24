@@ -138,12 +138,13 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
               <button
                 type="button"
                 className="btn icon-only"
-                aria-label="More actions"
+                aria-label="Settings"
+                title="Settings — AI, data, users"
                 aria-haspopup="menu"
                 aria-expanded={overflowOpen}
                 onClick={() => setOverflowOpen((v) => !v)}
               >
-                ⋯
+                <span aria-hidden="true">⚙</span>
               </button>
               {overflowOpen && (
                 <div className="popover head-overflow-pop" role="menu">
