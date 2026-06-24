@@ -876,6 +876,23 @@ button.av {
 .cell.drop-target .drop-hint {
   display: block;
 }
+/* Collapsed empty columns — thin labelled spine, content hidden. */
+.month-head.collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+}
+.month-head.collapsed .nm {
+  font-size: 10px;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+.cell.collapsed {
+  padding: 0;
+  background: var(--canvas);
+}
 .cell.backlog-col {
   background: var(--canvas);
 }

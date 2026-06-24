@@ -54,13 +54,23 @@ interface BoardProps {
   projectPinned: boolean;
 }
 
-function ColHead({ c, count, done }: { c: BoardCol; count: number; done: number }): JSX.Element {
+function ColHead({ c, count, done, collapsed }: { c: BoardCol; count: number; done: number; collapsed?: boolean }): JSX.Element {
   const pct = count ? Math.round((done / count) * 100) : 0;
   const cls =
     "month-head" +
     (c.isCurrent ? " current" : "") +
     (c.isBacklog ? " backlog" : "") +
-    (c.isTodo ? " todo" : "");
+    (c.isTodo ? " todo" : "") +
+    (collapsed ? " collapsed" : "");
+  // Collapsed (empty, non-current) time columns shrink to a labelled spine so
+  // the populated weeks get the width instead of paying for empty future ones.
+  if (collapsed) {
+    return (
+      <div className={cls} title={`${c.label} ${c.sublabel} · empty`}>
+        <span className="nm">{c.label}</span>
+      </div>
+    );
+  }
   return (
     <div className={cls}>
       <div className="row">
@@ -100,11 +110,12 @@ interface CellProps {
   pullsByIssue?: Map<number, Pull[]>;
   granularity: RangeGranularity;
   dropHint: DropHint | null;
+  collapsed?: boolean;
   onCardDragBegin: (bucket: string) => void;
   onCardDragFinish: () => void;
 }
 
-function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity, dropHint, onCardDragBegin, onCardDragFinish }: CellProps): JSX.Element {
+function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightCounts, pullsByIssue, granularity, dropHint, collapsed, onCardDragBegin, onCardDragFinish }: CellProps): JSX.Element {
   const isBL = colKey === "backlog";
   const isTD = colKey === "todo";
   const cls =
@@ -112,6 +123,7 @@ function Cell({ bucketKey, colKey, isLast, cards, onOpen, onDrop, flow, insightC
     (isBL ? " backlog-col" : "") +
     (isTD ? " todo-col" : "") +
     (isLast ? " last-row" : "") +
+    (collapsed ? " collapsed" : "") +
     (dropHint ? ` drop-${dropHint.tone}` : "");
 
   const onDragOver = (e: DragEvent<HTMLDivElement>): void => {
@@ -178,6 +190,14 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
   const rows: string[] = buckets.field === "none" ? ["__all__"] : buckets.options;
   const showLabelCol = buckets.field !== "none";
+
+  // Reclaim board width: empty, non-current time columns collapse to a thin
+  // labelled spine so the populated weeks aren't squeezed by empty future ones.
+  const COLLAPSED_W = "46px";
+  const colHasCards = (key: string): boolean => issues.some((i) => colKeyForIssue(i) === key && passFilter(i));
+  const isCollapsed = (c: BoardCol): boolean =>
+    !c.isCurrent && !c.isTodo && !c.isBacklog && !colHasCards(c.key);
+  const timeTrack = timeCols.map((c) => (isCollapsed(c) ? COLLAPSED_W : gridMinWidth(granularity))).join(" ");
 
   // The bucket (row) the in-flight card came from — drives drop-intent hints.
   const [dragSrcBucket, setDragSrcBucket] = useState<string | null>(null);
@@ -263,7 +283,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   function renderColHead(c: BoardCol): JSX.Element {
     const inCol = issues.filter((i) => colKeyForIssue(i) === c.key && passFilter(i));
     const done = inCol.filter((i) => i.state === "closed").length;
-    return <ColHead key={c.key} c={c} count={inCol.length} done={done} />;
+    return <ColHead key={c.key} c={c} count={inCol.length} done={done} collapsed={isCollapsed(c)} />;
   }
 
   function renderCells(bucket: string, isLast: boolean, list: BoardCol[]): JSX.Element[] {
@@ -285,6 +305,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
           pullsByIssue={pullsByIssue}
           granularity={granularity}
           dropHint={dropIntentFor(bucket, c.key)}
+          collapsed={isCollapsed(c)}
           onCardDragBegin={setDragSrcBucket}
           onCardDragFinish={() => setDragSrcBucket(null)}
         />
@@ -294,7 +315,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
   // ── SINGLE-GRID MODE (pinned === false): unchanged from original.
   if (!pinned) {
-    const cellTemplate = `repeat(${timeCols.length}, ${gridMinWidth(granularity)}) 220px 220px`;
+    const cellTemplate = `${timeTrack} 220px 220px`;
     const gridStyle: CSSProperties = showLabelCol
       ? { ["--grid-cols" as string]: `156px ${cellTemplate}` }
       : { ["--grid-cols" as string]: cellTemplate };
@@ -323,9 +344,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   // Outer .board-split defines the row tracks ONCE (header + one row per bucket).
   // Inner .board-scroll holds label col + time cols and scrolls horizontally.
   // Inner .board-pinned holds TODO + Backlog and stays fixed to the right edge.
-  const scrollCols = showLabelCol
-    ? `156px repeat(${timeCols.length}, ${gridMinWidth(granularity)})`
-    : `repeat(${timeCols.length}, ${gridMinWidth(granularity)})`;
+  const scrollCols = showLabelCol ? `156px ${timeTrack}` : timeTrack;
   const splitStyle: CSSProperties = {
     ["--scroll-cols" as string]: scrollCols,
     gridTemplateRows: `auto repeat(${rows.length}, minmax(130px, max-content))`,
