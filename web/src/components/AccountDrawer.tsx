@@ -277,20 +277,28 @@ function ProfileSection({
 
   const hasAny = PROFILE_FIELD_DEFS.some((f) => profile[f.key] !== null && profile[f.key] !== undefined);
 
+  // Lead with content: only render rows that are actually filled, so an empty
+  // CRM profile collapses to its "Add" action instead of a wall of em-dashes.
+  const filledFields = PROFILE_FIELD_DEFS.filter(
+    (f) => f.type !== "textarea" && profile[f.key] != null && profile[f.key] !== "",
+  );
+
   return (
     <div className="account-profile">
-      <dl className="d-meta">
-        {PROFILE_FIELD_DEFS.filter((f) => f.type !== "textarea").map((f) => {
-          const v = profile[f.key];
-          const display = f.key === "arr" ? formatArr(profile.arr) : v == null || v === "" ? "—" : String(v);
-          return (
-            <span key={f.key} style={{ display: "contents" }}>
-              <dt>{f.label}</dt>
-              <dd style={v == null || v === "" ? { color: "var(--ink-4)" } : undefined}>{display}</dd>
-            </span>
-          );
-        })}
-      </dl>
+      {filledFields.length > 0 && (
+        <dl className="d-meta">
+          {filledFields.map((f) => {
+            const v = profile[f.key];
+            const display = f.key === "arr" ? formatArr(profile.arr) : String(v);
+            return (
+              <span key={f.key} style={{ display: "contents" }}>
+                <dt>{f.label}</dt>
+                <dd>{display}</dd>
+              </span>
+            );
+          })}
+        </dl>
+      )}
       {profile.notes && (
         <div className="account-profile-notes">
           <div className="account-profile-label">Notes</div>

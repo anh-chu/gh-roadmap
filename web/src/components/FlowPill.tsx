@@ -6,15 +6,18 @@ interface Props {
   size?: "sm" | "md";
 }
 
-// Maps flow state → CSS token. Tokens defined in styles.css (no new tokens introduced).
+// Maps flow state → CSS token. Tokens defined in styles.css.
+// Color semantics: red (--r) is reserved for DANGER (overdue / at-risk) and is
+// never spent on a descriptive flow state. Positive momentum reads green/teal,
+// neutral activity reads blue/purple, "watch" reads amber, inactive reads grey.
 const COLOR: Record<FlowState, string> = {
   shipping: "var(--green)",
-  "in-review": "var(--accent)",
-  "in-code": "var(--n)",
-  discussing: "var(--e)",
-  stalled: "var(--r)",
+  "in-review": "var(--n)",
+  "in-code": "var(--blue)",
+  discussing: "var(--purple)",
+  stalled: "var(--e)",
   cold: "var(--ink-3)",
-  fresh: "var(--purple)",
+  fresh: "var(--accent)",
   closed: "var(--ink-3)",
 };
 

@@ -32,6 +32,7 @@
 
   --green: #2e8a4f;
   --purple: #6d4baf;
+  --blue: #2f6fb0;
 
   /* type */
   --sans: "Geist", -apple-system, system-ui, sans-serif;
@@ -84,6 +85,7 @@ html[data-theme="dark"] {
 
   --green: rgb(120, 210, 152);
   --purple: rgb(128, 97, 187);
+  --blue: rgb(122, 176, 232);
 
   --shadow-1: 0 1px 2px rgba(16, 14, 10, 0.5), 0 1px 1px rgba(16, 14, 10, 0.4);
   --shadow-2:
@@ -886,13 +888,13 @@ button.av {
 /* ─────────────── CARD ─────────────── */
 .card {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   border-radius: var(--r-card);
   padding: 10px 11px 9px;
   cursor: grab;
   position: relative;
   transition: all 0.14s ease;
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-2);
 }
 .card:hover {
   border-color: var(--border-3);
@@ -2884,8 +2886,8 @@ select.field-input {
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 500;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--ink-2);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px 10px;
