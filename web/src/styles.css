@@ -859,8 +859,11 @@ button.av {
   position: absolute;
   top: 6px;
   left: 6px;
-  right: 6px;
-  z-index: 2;
+  /* Size to content (capped) rather than to the cell, so a collapsed 46px
+     column doesn't crush the label into an overflowing stack of lines. */
+  width: max-content;
+  max-width: 200px;
+  z-index: 3;
   font-family: var(--mono);
   font-size: 10px;
   line-height: 1.3;
