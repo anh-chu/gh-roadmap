@@ -340,7 +340,18 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
           onSearch={setSearch}
           totalShown={totalShown}
           config={config}
-          onConfigChange={(patch) => void updateConfig(patch)}
+          onConfigChange={(patch) => {
+            void (async () => {
+              const ok = await updateConfig(patch);
+              // The board's bucket rows come from meta.buckets, which the server
+              // recomputes per config. Without this refetch a group-by change
+              // leaves meta.buckets on the old field → the grid blanks until the
+              // next 30s meta tick. Refresh immediately when bucketing changes.
+              if (ok && (patch.bucketingField !== undefined || patch.bucketingValue !== undefined)) {
+                void refreshMeta();
+              }
+            })();
+          }}
         />
         <div className="app-content">
           {tab === "progress" ? (
