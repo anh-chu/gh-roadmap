@@ -10,6 +10,8 @@ export type GhIssue = {
   milestone: string | null;
   milestone_due: string | null;
   labels: string[];
+  issue_type: string | null;
+  issue_type_color: string | null;
   updated_at: string;
   created_at: string | null;
   closed_at: string | null;
@@ -175,6 +177,7 @@ type GqlIssueNode = {
   assignees: { nodes: { login: string }[] };
   milestone: { title: string; dueOn: string | null } | null;
   labels: { nodes: { name: string }[] };
+  issueType: { name: string; color: string } | null;
   comments: {
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
     nodes: {
@@ -213,6 +216,7 @@ const ISSUES_QUERY = /* GraphQL */ `
           assignees(first: 1) { nodes { login } }
           milestone { title dueOn }
           labels(first: 30) { nodes { name } }
+          issueType { name color }
           comments(first: 50) {
             pageInfo { hasNextPage endCursor }
             nodes {
@@ -476,6 +480,8 @@ export async function fetchAllIssues(lastSyncAt?: string): Promise<{ issues: GhI
         milestone: n.milestone?.title ?? null,
         milestone_due: n.milestone?.dueOn ?? null,
         labels: n.labels.nodes.map((l) => l.name),
+        issue_type: n.issueType?.name ?? null,
+        issue_type_color: n.issueType?.color ?? null,
         updated_at: n.updatedAt,
         created_at: n.createdAt,
         closed_at: n.closedAt,
@@ -626,6 +632,8 @@ export async function updateIssue(octo: Octokit, num: number, patch: IssuePatch)
     milestone: data.milestone?.title ?? null,
     milestone_due: data.milestone?.due_on ?? null,
     labels: (data.labels ?? []).map((l) => (typeof l === "string" ? l : l.name ?? "")).filter(Boolean),
+    issue_type: null,
+    issue_type_color: null,
     updated_at: data.updated_at,
     created_at: data.created_at ?? null,
     closed_at: data.closed_at ?? null,
@@ -661,6 +669,8 @@ export async function createIssue(octo: Octokit, input: IssueCreate): Promise<Gh
     milestone: data.milestone?.title ?? null,
     milestone_due: data.milestone?.due_on ?? null,
     labels: (data.labels ?? []).map((l) => (typeof l === "string" ? l : l.name ?? "")).filter(Boolean),
+    issue_type: null,
+    issue_type_color: null,
     updated_at: data.updated_at,
     created_at: data.created_at ?? null,
     closed_at: data.closed_at ?? null,

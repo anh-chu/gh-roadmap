@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Account, Issue } from "../../../shared/types";
 import type { TabKey } from "./Toolbar";
+import { TypeBadge } from "./TypeBadge";
 import { fetchAccounts } from "../lib/api";
 
 interface Props {
@@ -19,6 +20,7 @@ interface Item {
   label: string;
   hint?: string;
   run: () => void;
+  issue?: Issue;
 }
 
 const NAV: { tab: TabKey; label: string }[] = [
@@ -77,7 +79,7 @@ export function CommandPalette({ open, onClose, issues, onOpenIssue, onOpenAccou
       })
       .slice(0, 8);
     for (const i of matchedIssues) {
-      out.push({ kind: "issue", id: `issue:${i.num}`, label: i.title, hint: `#${i.num}`, run: () => { onOpenIssue(i); onClose(); } });
+      out.push({ kind: "issue", id: `issue:${i.num}`, label: i.title, hint: `#${i.num}`, run: () => { onOpenIssue(i); onClose(); }, issue: i });
     }
 
     // Accounts — by name.
@@ -128,6 +130,7 @@ export function CommandPalette({ open, onClose, issues, onOpenIssue, onOpenAccou
                   onClick={() => it.run()}
                 >
                   <span className="cmdk-item-label">{it.label}</span>
+                  {it.kind === "issue" && it.issue && <TypeBadge issue={it.issue} />}
                   {it.hint && <span className="cmdk-item-hint">{it.hint}</span>}
                 </button>
               </div>

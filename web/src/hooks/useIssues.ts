@@ -450,6 +450,8 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
         effort: null,
         projectStatus: null,
         projectItemId: null,
+        issueType: null,
+        issueTypeColor: null,
       };
       dispatch({ type: "insert", issue: optimistic });
       try {

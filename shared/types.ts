@@ -12,6 +12,8 @@ export interface ApiIssue {
   milestoneDue: string | null;
   labels: string[];
   updatedAt: string;
+  issueType: string | null;
+  issueTypeColor: string | null;
   plannedMonth: string | null;
   plannedWeek: string | null;
   roadmapNotes: string | null;
@@ -227,6 +229,8 @@ export interface Issue {
   effort: EffortRating | null; // from an `effort:*` label, else null
   projectStatus: string | null; // pinned-project board Status label; null when off-board
   projectItemId: string | null; // pinned-project item id (needed for status writes)
+  issueType: string | null;
+  issueTypeColor: string | null;
 }
 
 // Normalized CI rollup for a PR (from pull_checks status + conclusion).
@@ -789,5 +793,7 @@ export function fromApi(r: ApiIssue): Issue {
     effort: effortFromLabels(labels),
     projectStatus: r.projectStatus ?? null,
     projectItemId: r.projectItemId ?? null,
+    issueType: r.issueType ?? null,
+    issueTypeColor: r.issueTypeColor ?? null,
   };
 }

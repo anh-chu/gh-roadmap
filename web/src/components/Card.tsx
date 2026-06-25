@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import type { FlowResult, Issue, Pull, RangeGranularity } from "../../../shared/types";
 import { FlowPill } from "./FlowPill";
 import { resolveEffortChip } from "./EffortChip";
+import { TypeBadge } from "./TypeBadge";
 import { CI_LABEL, REVIEW_LABEL, primaryPull, pullStateLabel } from "../lib/pull";
 import { useIssueSummary } from "../hooks/useIssueSummary";
 import { driftState, milestoneColumnKey, planPrecision } from "../lib/timeRange";
@@ -143,6 +144,7 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
       <div className="card-head">
         <span className="card-num">#{issue.num}</span>
         <FlowPill result={flowResult} size="md" />
+        <TypeBadge issue={issue} />
         {resolveEffortChip(issue, summary)}
       </div>
       <div className="card-title">{issue.title}</div>

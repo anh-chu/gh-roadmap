@@ -3,6 +3,7 @@ import type { FlowResult, Issue } from "../../../shared/types";
 import { formatRelative } from "./Drawer";
 import { FlowPill } from "./FlowPill";
 import { EffortChip } from "./EffortChip";
+import { TypeBadge } from "./TypeBadge";
 
 type SortKey = "num" | "title" | "state" | "flow" | "assignee" | "planned" | "updated" | "signal";
 type SortDir = "asc" | "desc";
@@ -215,6 +216,7 @@ export function List({ issues, passFilter, onOpen, flow, insightCounts, todoStat
                   <td className="list-td list-c-title">
                     <span className="list-title-text">{i.title}</span>
                     {i.effort && <EffortChip effort={i.effort} source="label" />}
+                    <TypeBadge issue={i} />
                   </td>
                   <td className="list-td list-c-state"><StateChip state={i.state} /></td>
                   <td className="list-td list-c-flow"><FlowPill result={flow.get(i.num)} size="md" /></td>

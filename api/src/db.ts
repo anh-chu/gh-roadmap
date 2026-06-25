@@ -11,6 +11,8 @@ export type IssueRow = {
   milestone: string | null;
   labels: string; // JSON array of strings
   updated_at: string;
+  issue_type: string | null;
+  issue_type_color: string | null;
   raw: string; // JSON of full payload
 };
 
@@ -79,6 +81,8 @@ export function initDb(path: string): Database.Database {
       updated_at   TEXT NOT NULL,
       created_at   TEXT,
       closed_at    TEXT,
+      issue_type   TEXT,
+      issue_type_color TEXT,
       raw          TEXT NOT NULL
     );
 
@@ -373,6 +377,8 @@ export function initDb(path: string): Database.Database {
   const issueColNames = new Set(issueCols.map((c) => c.name));
   if (!issueColNames.has("created_at")) db.exec("ALTER TABLE issues ADD COLUMN created_at TEXT");
   if (!issueColNames.has("closed_at")) db.exec("ALTER TABLE issues ADD COLUMN closed_at TEXT");
+  if (!issueColNames.has("issue_type")) db.exec("ALTER TABLE issues ADD COLUMN issue_type TEXT");
+  if (!issueColNames.has("issue_type_color")) db.exec("ALTER TABLE issues ADD COLUMN issue_type_color TEXT");
   if (!issueColNames.has("milestone_due")) db.exec("ALTER TABLE issues ADD COLUMN milestone_due TEXT");
   if (!issueColNames.has("node_id")) db.exec("ALTER TABLE issues ADD COLUMN node_id TEXT");
 

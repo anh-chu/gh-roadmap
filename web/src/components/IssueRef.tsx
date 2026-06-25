@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Issue } from "../../../shared/types";
+import { TypeBadge } from "./TypeBadge";
 import { useIssueSummary } from "../hooks/useIssueSummary";
 
 interface IssueRefProps {
@@ -116,6 +117,7 @@ function IssueRefTooltipPortal({
       style={{ top: anchor.top, left: anchor.left, width: TOOLTIP_WIDTH, pointerEvents: "none" }}
     >
       <div className="issue-ref-tooltip-title">{issue.title}</div>
+      <TypeBadge issue={issue} />
       <div className="issue-ref-tooltip-meta">
         {issue.assignee} · {issue.state}
       </div>

@@ -4,6 +4,7 @@ import type { FlowResult, Issue, ProjectFull, ProjectItem, ProjectStatusOption }
 import type { UseProjectResult, UseProjectsResult } from "../hooks/useProjects";
 import { patchProjectItemStatus } from "../lib/api";
 import { FlowPill } from "./FlowPill";
+import { TypeBadge } from "./TypeBadge";
 
 const PILL_COLORS = ["--n", "--accent", "--e", "--r", "--green", "--purple"];
 const NO_STATUS_KEY = "__no_status__";
@@ -86,6 +87,7 @@ function KanbanCard({ item, issue, onOpen, onDraftClick, flowResult }: KanbanCar
         {isDraft && <span className="kb-tag draft">Draft</span>}
         {isPr && <span className="kb-tag pr">PR</span>}
         <FlowPill result={flowResult} size="sm" />
+        {issue && <TypeBadge issue={issue} />}
       </div>
       <div className="kb-card-title">{item.contentTitle}</div>
       {assignee && (

@@ -26,8 +26,8 @@ let _reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 export function upsertIssue(i: GhIssue): void {
   db()
     .prepare(
-      `INSERT INTO issues(number,node_id,title,body,state,assignee,milestone,milestone_due,labels,updated_at,created_at,closed_at,raw)
-       VALUES(@number,@node_id,@title,@body,@state,@assignee,@milestone,@milestone_due,@labels,@updated_at,@created_at,@closed_at,@raw)
+      `INSERT INTO issues(number,node_id,title,body,state,assignee,milestone,milestone_due,labels,updated_at,created_at,closed_at,issue_type,issue_type_color,raw)
+       VALUES(@number,@node_id,@title,@body,@state,@assignee,@milestone,@milestone_due,@labels,@updated_at,@created_at,@closed_at,@issue_type,@issue_type_color,@raw)
        ON CONFLICT(number) DO UPDATE SET
          node_id=COALESCE(excluded.node_id, issues.node_id),
          title=excluded.title, body=excluded.body, state=excluded.state,
@@ -36,6 +36,8 @@ export function upsertIssue(i: GhIssue): void {
          labels=excluded.labels, updated_at=excluded.updated_at,
          created_at=COALESCE(excluded.created_at, issues.created_at),
          closed_at=excluded.closed_at,
+         issue_type=COALESCE(excluded.issue_type, issues.issue_type),
+         issue_type_color=COALESCE(excluded.issue_type_color, issues.issue_type_color),
          raw=excluded.raw`,
     )
     .run({
@@ -51,6 +53,8 @@ export function upsertIssue(i: GhIssue): void {
       updated_at: i.updated_at,
       created_at: i.created_at,
       closed_at: i.closed_at,
+      issue_type: i.issue_type,
+      issue_type_color: i.issue_type_color,
       raw: JSON.stringify(i.raw),
     });
 }
@@ -186,7 +190,7 @@ export function upsertIssueEvent(e: GhTimelineEvent): void {
     .run(e);
 }
 
-export async function reconcile(): Promise<{
+export async function reconcile(opts?: { full?: boolean }): Promise<{
   issues: number;
   comments: number;
   pulls: number;
@@ -196,7 +200,7 @@ export async function reconcile(): Promise<{
   if (_reconciling) return { issues: 0, comments: 0, pulls: 0, reviews: 0, events: 0 };
   _reconciling = true;
   try {
-  const last = getKv("lastSyncAt");
+  const last = opts?.full ? null : getKv("lastSyncAt");
   const lastWebhook = getKv("lastWebhookAt");
 
   // Parallel fetch with early page cutoff on incremental sync.
@@ -505,6 +509,8 @@ export function handleWebhook(event: string, payload: unknown): void {
       milestone: p.issue.milestone?.title ?? null,
       milestone_due: p.issue.milestone?.due_on ?? null,
       labels: p.issue.labels.map((l) => l.name),
+      issue_type: null,
+      issue_type_color: null,
       updated_at: p.issue.updated_at,
       created_at: p.issue.created_at ?? null,
       closed_at: p.issue.closed_at ?? null,

@@ -8,6 +8,7 @@ import { MorningBrief } from "./MorningBrief";
 import { AiBlock } from "./AiBlock";
 import { useAiProgress } from "../hooks/useAiProgress";
 import { EffortChip } from "./EffortChip";
+import { TypeBadge } from "./TypeBadge";
 
 interface ProgressProps {
   issues: Issue[];
@@ -221,6 +222,7 @@ export function Progress({ issues, meta, onOpen, onMove }: ProgressProps): JSX.E
                         <EffortChip effort={r.effort} source={r.effortSource} />
                       )}
                       <span className="hd-risk-title">{r.title}</span>
+                      {issue && <TypeBadge issue={issue} />}
                       <span className="hd-risk-reason">{r.reason}</span>
                       {onMove && issue && (
                         <span className="hd-risk-actions" onClick={(e) => e.stopPropagation()}>
@@ -390,6 +392,7 @@ function OnYourPlateCard({
               >
                 <span className={`pm-cat pm-cat-${it.category}`}>{PM_CAT_LABEL[it.category]}</span>
                 <span className="hd-risk-num">#{it.issueNumber}</span>
+                {issue && <TypeBadge issue={issue} />}
                 <span className="hd-risk-title">{it.title}</span>
                 <span className="hd-risk-reason">{it.action}</span>
                 <span className="hd-risk-chev">▶</span>

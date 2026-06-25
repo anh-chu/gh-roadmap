@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { FlowResult, FlowState, Issue } from "../../../shared/types";
 import { FlowPill } from "./FlowPill";
 import { IssueRef } from "./IssueRef";
+import { TypeBadge } from "./TypeBadge";
 import { AiBlock } from "./AiBlock";
 import { useMilestoneNotes } from "../hooks/useMilestoneNotes";
 import { canEdit } from "../lib/role";
@@ -261,6 +262,7 @@ function MilestoneCard({
             <div key={i.num} className="ms-row" onClick={() => onOpen(i)}>
               <span className={`ms-row-state ${i.state}`}><i className="dot" />{i.state}</span>
               <FlowPill result={flow.get(i.num)} size="sm" />
+              <TypeBadge issue={i} />
               <span className="ms-row-ref" onClick={(e) => e.stopPropagation()}>
                 <IssueRef num={i.num} issue={i} onOpen={onOpen} />
               </span>

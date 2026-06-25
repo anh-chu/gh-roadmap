@@ -641,7 +641,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       },
       "/api/sync": {
         post: op("sync", "runSync", "Run manual GitHub and insights reconciliation.", {
-          requestBody: body({ type: "object", additionalProperties: true }, false),
+          requestBody: body({ type: "object", additionalProperties: false, properties: { full: { type: "boolean", description: "Ignore the lastSyncAt cutoff and re-pull every issue/PR from scratch. Default false (incremental)." } } }, false),
           responses: ok({ type: "object", additionalProperties: true }),
           "x-side-effects": true,
         }),
@@ -681,6 +681,8 @@ const components: Record<string, JsonSchema> = {
       state: stringEnum(["open", "closed"]), assignee: nullableString, milestone: nullableString,
       milestoneDue: { ...nullableString, description: "GitHub milestone due_on (ISO date-time), read-only mirror" },
       labels: { type: "array", items: { type: "string" } }, updatedAt: { type: "string" },
+      issueType: { ...nullableString, description: "GitHub native issue type name (e.g. Bug, Feature, Task); read-only mirror" },
+      issueTypeColor: { ...nullableString, description: "GitHub issue type color enum (BLUE/GRAY/GREEN/ORANGE/PINK/PURPLE/RED/YELLOW)" },
       plannedMonth: nullableString, plannedWeek: nullableString, roadmapNotes: nullableString,
       position: { type: ["integer", "null"] }, isTodo: { type: "boolean" },
       projectStatus: { ...nullableString, description: "Status label on the pinned GitHub Project (GITHUB_PROJECT_NUMBER); null when off-board or no project pinned" },

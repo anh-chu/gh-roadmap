@@ -34,6 +34,8 @@ type IssueJoinedRow = {
   milestone_due: string | null;
   labels: string;
   updated_at: string;
+  issue_type: string | null;
+  issue_type_color: string | null;
   planned_month: string | null;
   planned_week: string | null;
   roadmap_notes: string | null;
@@ -54,6 +56,8 @@ function rowToJson(r: IssueJoinedRow) {
     milestoneDue: r.milestone_due,
     labels: JSON.parse(r.labels) as string[],
     updatedAt: r.updated_at,
+    issueType: r.issue_type,
+    issueTypeColor: r.issue_type_color,
     plannedMonth: r.planned_month,
     plannedWeek: r.planned_week,
     roadmapNotes: r.roadmap_notes,
@@ -117,7 +121,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
     const params = mf ? mf.params : [];
     const pj = pinnedProjectJoin();
     const rows = q(
-        `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at,
+        `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at, i.issue_type, i.issue_type_color,
                 m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
          FROM issues i
          LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
