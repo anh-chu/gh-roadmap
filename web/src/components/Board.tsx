@@ -483,11 +483,13 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     const style: CSSProperties = {
       gridColumn: mode === "split" ? `${labelOffset + 1} / -1` : `${labelOffset + 1} / ${labelOffset + 1 + timeSpan}`,
     };
-    // When bands stack below row 1, pin the row tracks explicitly: cells size
-    // row 1, each band-row is max-content, and a trailing 1fr absorbs any extra
-    // height when a sibling (meta cells / taller row) stretches the lane — so
-    // the full-height column dividers (grid-row 1 / -1) reach the true bottom.
-    if (bandRows > 0) style.gridTemplateRows = `repeat(${bandRows + 1}, max-content) 1fr`;
+    // Pin the lane's row tracks so the cells fill the row's full height (the
+    // subgrid wrapper otherwise leaves them at row-1 height, so a taller sibling
+    // — e.g. stacked Backlog cards — leaves an empty, borderless gap below).
+    // No bands: one filler row so cells stretch. With bands: cells size row 1,
+    // each band-row is max-content, and a trailing 1fr absorbs extra height so
+    // the column dividers (grid-row 2 / -1) reach the true bottom.
+    style.gridTemplateRows = bandRows > 0 ? `repeat(${bandRows + 1}, max-content) 1fr` : "1fr";
     return (
       <div className={"span-lane" + (isLast ? " last-row" : "")} style={style}>
         {renderCells(bucket, isLast, timeCols)}
