@@ -407,10 +407,12 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
   const labelOffset = showLabelCol ? 1 : 0;
 
-  function renderSpanBands(bucket: string): JSX.Element[] {
+  // Lay spanning month-bands of a bucket onto stacked rows: greedy interval
+  // packing so non-overlapping months share a row. Each entry carries its
+  // resolved row (0-based, rendered into grid-row row+2 — row 1 holds the cells).
+  function spanEntriesFor(bucket: string): { i: Issue; span: MonthSpan; monthTag: string; row: number }[] {
     if (granularity !== "week") return [];
-
-    const entries = issues
+    const raw = issues
       .filter((i) => issueBucket(i, buckets) === bucket && passFilter(i) && isMonthSpan(i))
       .map((i) => {
         const span: MonthSpan | null = i.month ? monthSpanInWeekCols(i.month, timeCols) : null;
@@ -423,17 +425,32 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
       .filter((x): x is { i: Issue; span: MonthSpan; monthTag: string } => x !== null)
       .sort((a, b) => a.span.startLine - b.span.startLine);
 
+    const rowEnds: number[] = [];
+    return raw.map((e) => {
+      let row = rowEnds.findIndex((end) => e.span.startLine >= end);
+      if (row === -1) {
+        row = rowEnds.length;
+        rowEnds.push(e.span.endLine);
+      } else {
+        rowEnds[row] = e.span.endLine;
+      }
+      return { ...e, row };
+    });
+  }
+
+  function renderSpanBands(bucket: string, entries: { i: Issue; span: MonthSpan; monthTag: string; row: number }[]): JSX.Element[] {
     // A band whose end line equals another band's start line means two months meet
     // at a shared straddle-week midline; give those inner edges a small gap.
     const startLines = new Set(entries.map((e) => e.span.startLine));
     const endLines = new Set(entries.map((e) => e.span.endLine));
 
-    return entries.map(({ i, span, monthTag }) => {
+    return entries.map(({ i, span, monthTag, row }) => {
         const seamStart = span.boundStart && endLines.has(span.startLine);
         const seamEnd = span.boundEnd && startLines.has(span.endLine);
         const cls = `span-band${seamStart ? " seam-start" : ""}${seamEnd ? " seam-end" : ""}`;
         const style: CSSProperties = {
           gridColumn: `${span.startLine} / ${span.endLine}`,
+          gridRow: String(row + 2),
         };
         return (
           <div className={cls} style={style} key={`span-${bucket}-${i.num}`}>
@@ -461,13 +478,28 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
   function renderTimeRegion(bucket: string, isLast: boolean, mode: "single" | "split"): JSX.Element {
     const timeSpan = granularity === "week" ? 2 * timeCols.length : timeCols.length;
+    const entries = spanEntriesFor(bucket);
+    const bandRows = entries.reduce((m, e) => Math.max(m, e.row + 1), 0);
     const style: CSSProperties = {
       gridColumn: mode === "split" ? `${labelOffset + 1} / -1` : `${labelOffset + 1} / ${labelOffset + 1 + timeSpan}`,
     };
+    // When bands stack below row 1, pin the row tracks explicitly: cells size
+    // row 1, each band-row is max-content, and a trailing 1fr absorbs any extra
+    // height when a sibling (meta cells / taller row) stretches the lane — so
+    // the full-height column dividers (grid-row 1 / -1) reach the true bottom.
+    if (bandRows > 0) style.gridTemplateRows = `repeat(${bandRows + 1}, max-content) 1fr`;
     return (
-      <div className="span-lane" style={style}>
+      <div className={"span-lane" + (isLast ? " last-row" : "")} style={style}>
         {renderCells(bucket, isLast, timeCols)}
-        {renderSpanBands(bucket)}
+        {bandRows > 0 &&
+          timeCols.map((c, idx) => (
+            <div
+              key={`span-div-${bucket}-${c.key}`}
+              className="span-divider"
+              style={{ gridColumn: `${idx * 2 + 1} / span 2`, gridRow: "2 / -1" }}
+            />
+          ))}
+        {renderSpanBands(bucket, entries)}
       </div>
     );
   }

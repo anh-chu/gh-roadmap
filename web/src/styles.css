@@ -1029,10 +1029,26 @@ button.av {
   grid-auto-rows: max-content;
   row-gap: 6px;
   align-content: start;
+  /* Cells only occupy row 1; the spanning bands flow into rows below. Close the
+     lane at its true bottom so the row divider doesn't sit mid-lane — the
+     column dividers below handle the verticals through the band area. */
+  border-bottom: 1px solid var(--border);
+}
+.span-lane.last-row {
+  border-bottom: none;
 }
 
 .span-lane > .cell {
   grid-row: 1;
+}
+
+/* Column dividers for the band area (grid-row 2 / -1): cell borders only cover
+   row 1, so without these the bands area below would read as borderless. They
+   skip row 1 to leave the auto-placed cells their space; spanning bands render
+   after these in the DOM and paint over the crossed lines. */
+.span-divider {
+  border-right: 1px solid var(--border);
+  pointer-events: none;
 }
 
 .span-band {
