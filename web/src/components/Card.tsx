@@ -18,6 +18,7 @@ interface CardProps {
   insightCount?: number;
   pulls?: Pull[];
   granularity?: RangeGranularity;
+  monthTag?: string;
   // Let the board light up drop-intent hints while this card is in flight.
   onDragBegin?: () => void;
   onDragFinish?: () => void;
@@ -31,7 +32,7 @@ interface TooltipAnchor {
 const TOOLTIP_WIDTH = 360;
 const TOOLTIP_OFFSET = 8;
 
-export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granularity, onDragBegin, onDragFinish }: CardProps): JSX.Element {
+export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granularity, monthTag, onDragBegin, onDragFinish }: CardProps): JSX.Element {
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const timerRef = useRef<number | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -143,6 +144,7 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
     >
       <div className="card-head">
         <span className="card-num">#{issue.num}</span>
+        {monthTag ? <span className="span-month-tag">{monthTag}</span> : null}
         <FlowPill result={flowResult} size="md" />
         <TypeBadge issue={issue} />
         {resolveEffortChip(issue, summary)}

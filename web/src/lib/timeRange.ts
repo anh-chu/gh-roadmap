@@ -103,9 +103,78 @@ export function weekToMonth(yyyyWww: string): string | null {
   return ymKey(monday.getUTCFullYear(), monday.getUTCMonth() + 1);
 }
 
+// Returns YYYY-MM of the Sunday of the ISO week.
+function weekSundayMonth(yyyyWww: string): string | null {
+  const p = parseWeekKey(yyyyWww);
+  if (!p) return null;
+  const sunday = isoWeekMonday(p.year, p.week);
+  sunday.setUTCDate(sunday.getUTCDate() + 6);
+  return ymKey(sunday.getUTCFullYear(), sunday.getUTCMonth() + 1);
+}
+
 export function weekToQuarter(yyyyWww: string): string | null {
   const ym = weekToMonth(yyyyWww);
   return ym ? monthToQuarter(ym) : null;
+}
+
+export interface MonthSpan {
+  startIdx: number;
+  endIdx: number;
+  startLine: number;
+  endLine: number;
+  clipStart: boolean;
+  clipEnd: boolean;
+  boundStart: boolean;
+  boundEnd: boolean;
+}
+
+// Map a month key onto the visible week columns.
+export function monthSpanInWeekCols(monthKey: string, weekCols: RangeColumn[]): MonthSpan | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
+  if (!m || weekCols.length === 0) return null;
+
+  const year = Number(m[1]);
+  const month0 = Number(m[2]) - 1;
+  const startDate = new Date(Date.UTC(year, month0, 1));
+  const endDate = new Date(Date.UTC(year, month0 + 1, 0));
+  const startParts = isoWeekParts(startDate);
+  const endParts = isoWeekParts(endDate);
+  const startWeek = weekKey(startParts.year, startParts.week);
+  const endWeek = weekKey(endParts.year, endParts.week);
+
+  let startIdx = -1;
+  let endIdx = -1;
+  for (let i = 0; i < weekCols.length; i++) {
+    const col = weekCols[i];
+    if (!col) continue;
+    const key = col.key;
+    if (key < startWeek || key > endWeek) continue;
+    if (startIdx === -1) startIdx = i;
+    endIdx = i;
+  }
+  if (startIdx === -1) return null;
+
+  const first = weekCols[0]!;
+  const last = weekCols[weekCols.length - 1]!;
+  const clipStart = first.key > startWeek;
+  const clipEnd = last.key < endWeek;
+  const firstKey = weekCols[startIdx]!.key;
+  const lastKey = weekCols[endIdx]!.key;
+  const boundStart = !clipStart && weekToMonth(firstKey) !== monthKey;
+  const boundEnd = !clipEnd && weekSundayMonth(lastKey) !== monthKey;
+  const startLine = 2 * startIdx + 1 + (boundStart ? 1 : 0);
+  const endLine = 2 * endIdx + 3 - (boundEnd ? 1 : 0);
+
+  return {
+    startIdx,
+    endIdx,
+    startLine,
+    endLine,
+    clipStart,
+    clipEnd,
+    boundStart,
+    boundEnd,
+  };
 }
 
 // First month (YYYY-MM) of a given quarter key.

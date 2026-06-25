@@ -232,6 +232,11 @@ button.sync-item {
 button.sync-item:disabled {
   cursor: default;
 }
+
+.sync-combo {
+  position: relative;
+  display: inline-flex;
+}
 .sync-item.syncing .dot {
   animation: blink 0.7s ease-in-out infinite;
 }
@@ -656,6 +661,18 @@ button.av {
   min-width: 1200px;
 }
 
+.week-cols > .month-head:not(.corner):not(.todo):not(.backlog) {
+  grid-column: span 2;
+}
+
+.week-cols > .cell:not(.todo-col):not(.backlog-col) {
+  grid-column: span 2;
+}
+
+.week-cols .span-lane > .cell {
+  grid-column: span 2;
+}
+
 /* month header row */
 .month-head {
   padding: 14px 16px 12px;
@@ -1003,6 +1020,50 @@ button.av {
   opacity: 0.4;
   transform: rotate(-1.5deg) scale(1.02);
   box-shadow: var(--shadow-2);
+}
+
+/* ─────────────── SPANNING MONTH BANDS ─────────────── */
+.span-lane {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-auto-rows: max-content;
+  row-gap: 6px;
+  align-content: start;
+}
+
+.span-lane > .cell {
+  grid-row: 1;
+}
+
+.span-band {
+  grid-row: auto;
+}
+
+.span-band > .card {
+  width: 100%;
+}
+
+.span-month-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+}
+
+/* Two months meeting at a shared straddle-week midline: a small gap so the
+   rounded cards read as distinct rather than touching. */
+.span-band.seam-start > .card {
+  margin-left: 4px;
+}
+
+.span-band.seam-end > .card {
+  margin-right: 4px;
+}
+
+.grid .span-lane > .cell:last-child {
+  border-right: 1px solid var(--border);
 }
 
 .card-head {
@@ -3087,6 +3148,10 @@ select.field-input {
   font-size: 11px;
   color: var(--ink-3);
   line-height: 1.4;
+}
+
+.sync-pop {
+  width: 240px;
 }
 
 /* Help popover — per-tab plain-language orientation for new users. */

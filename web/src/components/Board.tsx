@@ -7,6 +7,8 @@ import {
   buildColumns,
   gridMinWidth,
   issueColumnKey,
+  monthSpanInWeekCols,
+  type MonthSpan,
   type RangeColumn,
 } from "../lib/timeRange";
 
@@ -112,7 +114,7 @@ interface CellProps {
   dropHint: DropHint | null;
   collapsed?: boolean;
   emptyRow?: boolean;
-  onCardDragBegin: (bucket: string) => void;
+  onCardDragBegin: (bucket: string, span?: boolean) => void;
   onCardDragFinish: () => void;
 }
 
@@ -244,19 +246,38 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   // Reclaim board width: empty, non-current time columns collapse to a thin
   // labelled spine so the populated weeks aren't squeezed by empty future ones.
   const COLLAPSED_W = "46px";
-  const colHasCards = (key: string): boolean => issues.some((i) => colKeyForIssue(i) === key && passFilter(i));
+  const issueInTimeCol = (i: Issue, key: string): boolean => {
+    if (colKeyForIssue(i) === key) return true;
+    if (!isMonthSpan(i) || !i.month) return false;
+    const span = monthSpanInWeekCols(i.month, timeCols);
+    if (!span) return false;
+    return timeCols.slice(span.startIdx, span.endIdx + 1).some((c) => c.key === key);
+  };
+
+  const colHasCards = (key: string): boolean => issues.some((i) => passFilter(i) && issueInTimeCol(i, key));
   const isCollapsed = (c: BoardCol): boolean =>
     !c.isCurrent && !c.isTodo && !c.isBacklog && !colHasCards(c.key);
-  const timeTrack = timeCols.map((c) => (isCollapsed(c) ? COLLAPSED_W : gridMinWidth(granularity))).join(" ");
+  const timeTrack = timeCols
+    .map((c) => {
+      if (granularity !== "week") return isCollapsed(c) ? COLLAPSED_W : gridMinWidth(granularity);
+      return isCollapsed(c) ? "23px 23px" : "minmax(80px, 0.5fr) minmax(80px, 0.5fr)";
+    })
+    .join(" ");
 
   // A bucket row is "empty in view" when no filtered card lands in any rendered
   // column (off-grid/out-of-range issues don't count). Such rows collapse short.
   const colKeySet = new Set(cols.map((c) => c.key));
   const bucketHasCards = (bucket: string): boolean =>
-    issues.some((i) => issueBucket(i, buckets) === bucket && passFilter(i) && colKeySet.has(colKeyForIssue(i)));
+    issues.some(
+      (i) =>
+        issueBucket(i, buckets) === bucket &&
+        passFilter(i) &&
+        (colKeySet.has(colKeyForIssue(i)) || (isMonthSpan(i) && i.month !== null && monthSpanInWeekCols(i.month, timeCols) !== null)),
+    );
 
   // The bucket (row) the in-flight card came from — drives drop-intent hints.
   const [dragSrcBucket, setDragSrcBucket] = useState<string | null>(null);
+  const [dragSrcSpan, setDragSrcSpan] = useState(false);
 
   // What a drop into (bucket, colKey) will actually do. A cross-bucket move in
   // label/assignee/milestone mode is a real GitHub mutation the whole team sees;
@@ -274,6 +295,9 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     }
     if (colKey === "todo" || colKey === "backlog") {
       return { tone: "status", label: `Moves to ${colKey === "todo" ? "To Do" : "Backlog"}` };
+    }
+    if (dragSrcSpan) {
+      return { tone: "private", label: "Re-plans to this week · was whole month" };
     }
     return { tone: "private", label: "Planning only · private" };
   }
@@ -318,6 +342,10 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     return i.projectStatus === config.backlogStatusName ? "backlog" : "untriaged";
   }
 
+  function isMonthSpan(i: Issue): boolean {
+    return granularity === "week" && !i.week && !!i.month;
+  }
+
   function renderBucketLabel(bucket: string, isLast: boolean): JSX.Element {
     const rowIssues = issues.filter((i) => issueBucket(i, buckets) === bucket);
     const total = rowIssues.length;
@@ -337,7 +365,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   }
 
   function renderColHead(c: BoardCol): JSX.Element {
-    const inCol = issues.filter((i) => colKeyForIssue(i) === c.key && passFilter(i));
+    const inCol = issues.filter((i) => passFilter(i) && issueInTimeCol(i, c.key));
     const done = inCol.filter((i) => i.state === "closed").length;
     return <ColHead key={c.key} c={c} count={inCol.length} done={done} collapsed={isCollapsed(c)} />;
   }
@@ -346,7 +374,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
     const emptyRow = !bucketHasCards(bucket);
     return list.map((c) => {
       const cards = issues.filter(
-        (i) => issueBucket(i, buckets) === bucket && colKeyForIssue(i) === c.key && passFilter(i),
+        (i) => issueBucket(i, buckets) === bucket && colKeyForIssue(i) === c.key && passFilter(i) && !isMonthSpan(i),
       );
       return (
         <Cell
@@ -364,11 +392,84 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
           dropHint={dropIntentFor(bucket, c.key)}
           collapsed={isCollapsed(c)}
           emptyRow={emptyRow}
-          onCardDragBegin={setDragSrcBucket}
-          onCardDragFinish={() => setDragSrcBucket(null)}
+          onCardDragBegin={(bucket, span) => {
+            setDragSrcBucket(bucket);
+            setDragSrcSpan(!!span);
+          }}
+          onCardDragFinish={() => {
+            setDragSrcBucket(null);
+            setDragSrcSpan(false);
+          }}
         />
       );
     });
+  }
+
+  const labelOffset = showLabelCol ? 1 : 0;
+
+  function renderSpanBands(bucket: string): JSX.Element[] {
+    if (granularity !== "week") return [];
+
+    const entries = issues
+      .filter((i) => issueBucket(i, buckets) === bucket && passFilter(i) && isMonthSpan(i))
+      .map((i) => {
+        const span: MonthSpan | null = i.month ? monthSpanInWeekCols(i.month, timeCols) : null;
+        if (!span) return null;
+        const monthTag = new Date(Date.UTC(2000, Number(i.month!.slice(5, 7)) - 1, 1))
+          .toLocaleString("en", { month: "short" })
+          .toUpperCase();
+        return { i, span, monthTag };
+      })
+      .filter((x): x is { i: Issue; span: MonthSpan; monthTag: string } => x !== null)
+      .sort((a, b) => a.span.startLine - b.span.startLine);
+
+    // A band whose end line equals another band's start line means two months meet
+    // at a shared straddle-week midline; give those inner edges a small gap.
+    const startLines = new Set(entries.map((e) => e.span.startLine));
+    const endLines = new Set(entries.map((e) => e.span.endLine));
+
+    return entries.map(({ i, span, monthTag }) => {
+        const seamStart = span.boundStart && endLines.has(span.startLine);
+        const seamEnd = span.boundEnd && startLines.has(span.endLine);
+        const cls = `span-band${seamStart ? " seam-start" : ""}${seamEnd ? " seam-end" : ""}`;
+        const style: CSSProperties = {
+          gridColumn: `${span.startLine} / ${span.endLine}`,
+        };
+        return (
+          <div className={cls} style={style} key={`span-${bucket}-${i.num}`}>
+            <Card
+              issue={i}
+              onOpen={onOpen}
+              flowResult={flow.get(i.num)}
+              insightCount={insightCounts?.[i.num] ?? 0}
+              pulls={pullsByIssue?.get(i.num)}
+              granularity={granularity}
+              monthTag={monthTag}
+              onDragBegin={() => {
+                setDragSrcBucket(bucket);
+                setDragSrcSpan(true);
+              }}
+              onDragFinish={() => {
+                setDragSrcBucket(null);
+                setDragSrcSpan(false);
+              }}
+            />
+          </div>
+        );
+      });
+  }
+
+  function renderTimeRegion(bucket: string, isLast: boolean, mode: "single" | "split"): JSX.Element {
+    const timeSpan = granularity === "week" ? 2 * timeCols.length : timeCols.length;
+    const style: CSSProperties = {
+      gridColumn: mode === "split" ? `${labelOffset + 1} / -1` : `${labelOffset + 1} / ${labelOffset + 1 + timeSpan}`,
+    };
+    return (
+      <div className="span-lane" style={style}>
+        {renderCells(bucket, isLast, timeCols)}
+        {renderSpanBands(bucket)}
+      </div>
+    );
   }
 
   // ── SINGLE-GRID MODE (pinned === false): unchanged from original.
@@ -380,7 +481,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
 
     return (
       <main className="board reveal" style={{ animationDelay: "120ms" }}>
-        <div className="grid" style={gridStyle}>
+        <div className={"grid" + (granularity === "week" ? " week-cols" : "")} style={gridStyle}>
           {showLabelCol && <div className="month-head corner"></div>}
           {cols.map(renderColHead)}
 
@@ -389,7 +490,8 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
             return (
               <Fragment key={`bucket-row-${bucket}`}>
                 {showLabelCol && renderBucketLabel(bucket, isLast)}
-                {renderCells(bucket, isLast, cols)}
+                {renderTimeRegion(bucket, isLast, "single")}
+                {renderCells(bucket, isLast, metaCols)}
               </Fragment>
             );
           })}
@@ -411,7 +513,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
   return (
     <main className="board reveal" style={{ animationDelay: "120ms" }}>
       <div className="board-split" style={splitStyle}>
-        <div className="board-scroll">
+        <div className={"board-scroll" + (granularity === "week" ? " week-cols" : "")}>
           {showLabelCol && <div className="month-head corner"></div>}
           {timeCols.map(renderColHead)}
           {rows.map((bucket, rowIdx) => {
@@ -419,7 +521,7 @@ export function Board({ issues, buckets, config, onOpen, onMove, passFilter, flo
             return (
               <Fragment key={`scroll-row-${bucket}`}>
                 {showLabelCol && renderBucketLabel(bucket, isLast)}
-                {renderCells(bucket, isLast, timeCols)}
+                {renderTimeRegion(bucket, isLast, "split")}
               </Fragment>
             );
           })}
