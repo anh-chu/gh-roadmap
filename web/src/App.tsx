@@ -111,13 +111,13 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
     return () => setGithubConnectHandler(null);
   }, []);
 
-  const handleSync = useCallback(async () => {
+  const handleSync = useCallback(async (full = false) => {
     if (syncing) return;
     setSyncing(true);
     try {
-      const r = await postSync();
+      const r = await postSync(full);
       await Promise.all([issuesApi.refresh(), refreshMeta()]);
-      toast.show(`Synced · ${r.github.issues} issues`);
+      toast.show(`${full ? "Full sync" : "Synced"} · ${r.github.issues} issues`);
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Sync failed");
     } finally {

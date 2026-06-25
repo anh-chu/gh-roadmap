@@ -150,8 +150,12 @@ export async function fetchCatalog(): Promise<CatalogResponse> {
   return jsonOrThrow<CatalogResponse>(r);
 }
 
-export async function postSync(): Promise<SyncResult> {
-  const r = await fetch("/api/sync", { method: "POST" });
+export async function postSync(full = false): Promise<SyncResult> {
+  const r = await fetch("/api/sync", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ full }),
+  });
   return jsonOrThrow<SyncResult>(r);
 }
 

@@ -35,7 +35,7 @@ interface HeaderProps {
   onNewIssue: () => void;
   onOpenPalette: () => void;
   filterActive: boolean;
-  onSync: () => void;
+  onSync: (full?: boolean) => void;
   syncing: boolean;
   theme: "light" | "dark";
   onToggleTheme: () => void;
@@ -45,6 +45,10 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
   const filterBtnRef = useRef<HTMLButtonElement | null>(null);
   const overflowRef = useRef<HTMLDivElement | null>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const syncBtnRef = useRef<HTMLButtonElement | null>(null);
+  const syncPopRef = useRef<HTMLDivElement | null>(null);
+  const [syncMenuOpen, setSyncMenuOpen] = useState(false);
+  const [syncAnchor, setSyncAnchor] = useState<DOMRect | null>(null);
   const compact = useMediaQuery("(max-width: 1280px)");
   const open = meta ? String(meta.openCount) : "—";
   const closed = meta ? String(meta.closedCount) : "—";
@@ -81,6 +85,30 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
   }, [overflowOpen]);
 
   useEffect(() => {
+    if (!syncMenuOpen) return;
+    const onDoc = (e: MouseEvent): void => {
+      if (!(e.target instanceof Node)) return;
+      if (syncPopRef.current?.contains(e.target)) return;
+      if (syncBtnRef.current?.contains(e.target)) return;
+      if (e.target instanceof Element && e.target.closest(".popover")) return;
+      setSyncMenuOpen(false);
+      setSyncAnchor(null);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        setSyncMenuOpen(false);
+        setSyncAnchor(null);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [syncMenuOpen]);
+
+  useEffect(() => {
     if (!compact) setOverflowOpen(false);
   }, [compact]);
 
@@ -97,16 +125,64 @@ export function Header({ meta, config, authUser, isAdmin, onScopeChange, onAiCha
       <div className="meta">
         {/* Viewers see sync freshness but can't trigger a sync (a mutation). */}
         {canEdit() ? (
-          <button
-            type="button"
-            className={"item sync-item" + (syncing ? " syncing" : "")}
-            onClick={onSync}
-            disabled={syncing}
-            title={meta ? `Sync now — pull latest from GitHub + insights · API budget ${apiBudget}` : "Sync now — pull latest from GitHub + insights"}
-          >
-            <span className="dot"></span>
-            {syncing ? "Syncing…" : <>Synced <b>{synced}</b></>}
-          </button>
+          <span className="sync-combo">
+            <button
+              ref={syncBtnRef}
+              type="button"
+              className={"item sync-item" + (syncing ? " syncing" : "")}
+              disabled={syncing}
+              aria-haspopup="menu"
+              aria-expanded={syncMenuOpen}
+              title={meta ? `Sync options · API budget ${apiBudget}` : "Sync options"}
+              onClick={() => {
+                const r = syncBtnRef.current?.getBoundingClientRect();
+                if (r) setSyncAnchor(r);
+                setSyncMenuOpen((v) => !v);
+              }}
+            >
+              <span className="dot"></span>
+              {syncing ? "Syncing…" : <>Synced <b>{synced}</b></>}
+            </button>
+            {syncMenuOpen && syncAnchor && (
+              <div
+                ref={syncPopRef}
+                className="popover sync-pop"
+                role="menu"
+                style={{ top: syncAnchor.bottom + 6, right: Math.max(8, window.innerWidth - syncAnchor.right), minWidth: 220 }}
+              >
+                <div className="pop-section">
+                  <button
+                    className="btn"
+                    style={{ width: "100%", justifyContent: "flex-start" }}
+                    onClick={() => {
+                      setSyncMenuOpen(false);
+                      setSyncAnchor(null);
+                      onSync(false);
+                    }}
+                  >
+                    <span>Sync now</span>
+                  </button>
+                  <div className="scope-help" style={{ margin: "4px 0 8px" }}>
+                    Incremental, only changes since last sync
+                  </div>
+                  <button
+                    className="btn"
+                    style={{ width: "100%", justifyContent: "flex-start" }}
+                    onClick={() => {
+                      setSyncMenuOpen(false);
+                      setSyncAnchor(null);
+                      onSync(true);
+                    }}
+                  >
+                    <span>Full resync</span>
+                  </button>
+                  <div className="scope-help" style={{ marginTop: 4 }}>
+                    Ignores cache, re-pulls everything
+                  </div>
+                </div>
+              </div>
+            )}
+          </span>
         ) : (
           <span className="item"><span className="dot"></span>Synced <b>{synced}</b></span>
         )}

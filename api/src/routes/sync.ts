@@ -5,12 +5,21 @@ import { reconcileInsights } from "../insights.js";
 import { isGithubConfigured } from "../github.js";
 import type { SyncResult } from "../../../shared/types.js";
 
-// Manual full sync — same work the boot/nightly loop does, on demand from the
-// header "Synced" pill. GitHub reconcile + local insights reconcile.
+// Manual sync — same work the boot/nightly loop does, on demand from the
+// header "Synced" pill. Incremental by default; pass full:true for a cache-ignoring re-pull.
+// GitHub reconcile + local insights reconcile.
 let _syncing = false;
 
 export async function syncRoutes(app: FastifyInstance): Promise<void> {
-  app.post("/api/sync", async (req, reply): Promise<SyncResult | undefined> => {
+  app.post<{ Body: { full?: boolean } }>("/api/sync", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: { full: { type: "boolean" } },
+      },
+    },
+  }, async (req, reply): Promise<SyncResult | undefined> => {
     if (!isGithubConfigured()) {
       reply.code(503).send({ error: "GitHub not configured — set GITHUB_OWNER/REPO + GITHUB_TOKEN or GitHub App credentials" });
       return;
@@ -21,7 +30,7 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
     }
     _syncing = true;
     try {
-      const github = await reconcile();
+      const github = await reconcile({ full: req.body?.full === true });
       const insights = await reconcileInsights();
       return { ok: true, lastSyncAt: getKv("lastSyncAt"), github, insights };
     } catch (err) {
