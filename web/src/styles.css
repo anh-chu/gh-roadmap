@@ -656,7 +656,9 @@ button.av {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
+  /* visible (not hidden) so .grid isn't a scroll container that would trap the
+     sticky month-head row away from the scrolling .board. */
+  overflow: visible;
   box-shadow: var(--shadow-1);
   min-width: 1200px;
 }
@@ -951,7 +953,9 @@ button.av {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
+  /* visible (not hidden) so it isn't a scroll container — otherwise it would
+     trap the sticky month-head row away from the scrolling .board. */
+  overflow: visible;
   box-shadow: var(--shadow-1);
   min-width: 1200px;
 }
@@ -961,8 +965,10 @@ button.av {
   display: grid;
   grid-template-rows: subgrid;
   grid-template-columns: var(--scroll-cols);
-  overflow-x: auto;
-  overflow-y: visible;
+  /* No own scroll: horizontal + vertical scrolling both live on .board so the
+     month-head row (position: sticky; top: 0) sticks to the board viewport
+     rather than being trapped in a nested scroll container. */
+  overflow: visible;
 }
 .board-split .board-pinned {
   grid-column: 2;
@@ -970,6 +976,11 @@ button.av {
   display: grid;
   grid-template-rows: subgrid;
   grid-template-columns: 200px 200px;
+  /* Sticky to the right edge so the TODO/Backlog columns stay put while the
+     time columns scroll horizontally under .board. */
+  position: sticky;
+  right: 0;
+  z-index: 5;
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 16px -8px rgba(20, 18, 12, 0.1);
   background: var(--canvas);
