@@ -796,7 +796,7 @@ button.av {
   flex-direction: column;
   gap: 4px;
 }
-.bucket-label,
+.bucket-label .nm,
 .area-label .nm {
   font-family: var(--sans);
   font-weight: 600;
@@ -805,20 +805,20 @@ button.av {
   letter-spacing: -0.01em;
   text-transform: capitalize;
 }
-.bucket-label,
+.bucket-label .lbl,
 .area-label .lbl {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-4);
 }
-.bucket-label,
+.bucket-label .nums,
 .area-label .nums {
   display: flex;
   align-items: baseline;
   gap: 4px;
   margin-top: 8px;
 }
-.bucket-label,
+.bucket-label .nums b,
 .area-label .nums b {
   font-family: var(--sans);
   font-size: 20px;
@@ -827,7 +827,7 @@ button.av {
   letter-spacing: -0.02em;
   line-height: 1;
 }
-.bucket-label,
+.bucket-label .nums small,
 .area-label .nums small {
   font-family: var(--mono);
   font-size: 10px;
