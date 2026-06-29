@@ -133,7 +133,7 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
   return (
     <div
       ref={cardRef}
-      className="card"
+      className={`card${issue.state === "closed" ? " closed" : ""}`}
       draggable={canEdit()} /* viewers can't move issues — drag disabled at the source */
       data-num={issue.num}
       onDragStart={onDragStart}
@@ -143,11 +143,10 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
       onMouseLeave={onMouseLeave}
     >
       <div className="card-head">
+        <TypeBadge issue={issue} dotOnly />
         <span className="card-num">#{issue.num}</span>
         {monthTag ? <span className="span-month-tag">{monthTag}</span> : null}
         <FlowPill result={flowResult} size="md" />
-        <TypeBadge issue={issue} />
-        {resolveEffortChip(issue, summary)}
       </div>
       <div className="card-title">{issue.title}</div>
       <div className="card-foot">
@@ -156,6 +155,7 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
           <span className="card-assignee-name">{issue.assignee}</span>
         </span>
         <span className="card-meta">
+          {resolveEffortChip(issue, summary, "bars")}
           {pr ? (
             <span className={`com card-pr-chip pr-state-${prSt!.mod}`} title={prTip}>
               <span aria-hidden>⑃</span>

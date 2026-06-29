@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { EffortRating, FlowState } from "../../../shared/types";
 import { FlowPill } from "./FlowPill";
+import { EffortChip } from "./EffortChip";
 import type { TabKey } from "./Toolbar";
 
 interface Anchor {
@@ -271,7 +272,7 @@ export function HelpPopover({ tab }: { tab: TabKey }): JSX.Element {
             <div className="flow-legend-list">
               {EFFORTS.map(({ effort, label, description }) => (
                 <div key={effort} className="flow-legend-item">
-                  <span className={`effort-chip effort-${effort}`}>{effort}</span>
+                  <EffortChip effort={effort} source="label" display="bars" />
                   <div className="flow-legend-copy">
                     <div className="flow-legend-title">{label}</div>
                     <div className="flow-legend-desc">{description}</div>
