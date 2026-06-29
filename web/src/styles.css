@@ -644,6 +644,19 @@ button.av {
   overflow: auto;
   padding: 20px 24px 40px;
 }
+/* Roadmap only: drop the board's top padding and move that spacing onto the
+   grid as a margin. The sticky month-head row pins to the board's content-box
+   top (top: 0); with top padding it pinned 20px down, leaving a strip where
+   scrolled cards bled through above it. Margin (not padding) keeps the at-rest
+   gap but scrolls away, so the pinned header sits flush against the top. */
+.board:has(> .grid),
+.board:has(> .board-split) {
+  padding-top: 0;
+}
+.board > .grid,
+.board > .board-split {
+  margin-top: 20px;
+}
 .grid {
   display: grid;
   /* --grid-cols is set inline by Board.tsx so it can collapse the first row-label column
@@ -656,9 +669,12 @@ button.av {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  /* visible (not hidden) so .grid isn't a scroll container that would trap the
-     sticky month-head row away from the scrolling .board. */
-  overflow: visible;
+  /* overflow-x visible so .grid isn't a scroll container that would trap the
+     sticky month-head row (the scroller is .board). overflow-y clip restores
+     the rounded-corner clipping the old overflow:hidden gave, but clip — unlike
+     hidden/auto — is not a scroll container, so the sticky header still works. */
+  overflow-x: visible;
+  overflow-y: clip;
   box-shadow: var(--shadow-1);
   min-width: 1200px;
 }
@@ -953,9 +969,12 @@ button.av {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  /* visible (not hidden) so it isn't a scroll container — otherwise it would
-     trap the sticky month-head row away from the scrolling .board. */
-  overflow: visible;
+  /* overflow-x visible so it isn't a scroll container that would trap the
+     sticky month-head row (the scroller is .board). overflow-y clip restores
+     rounded-corner clipping but, unlike hidden/auto, is not a scroll container,
+     so the sticky header still works. */
+  overflow-x: visible;
+  overflow-y: clip;
   box-shadow: var(--shadow-1);
   min-width: 1200px;
 }
