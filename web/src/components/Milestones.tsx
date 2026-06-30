@@ -290,7 +290,8 @@ export function Milestones({ issues, flow, insightCounts, onOpen, onToast }: Mil
   // stay visible while collapsed.
   const isPassed = (r: Rollup): boolean => r.title !== null && r.daysToDue !== null && r.daysToDue < 0;
   const current = rollups.filter((r) => !isPassed(r));
-  const passed = rollups.filter(isPassed);
+  // rollups are due-ascending; passed are all in the past, so reverse → closest first.
+  const passed = rollups.filter(isPassed).reverse();
   const passedOpenTotal = passed.reduce((n, r) => n + r.open, 0);
 
   const handleCopy = async (): Promise<void> => {
