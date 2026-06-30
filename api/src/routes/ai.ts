@@ -163,7 +163,7 @@ function buildSummaryInput(
   };
 }
 
-async function generateAndStoreSummary(num: number, workspaceId: number): Promise<AiSummary | null> {
+async function genSummary(num: number, workspaceId: number): Promise<AiSummary | null> {
   const loaded = loadIssueForSummary(num, workspaceId);
   if (!loaded) return null;
   const { issue, labels, comments, pulls, lastCommentId } = loaded;
@@ -400,7 +400,7 @@ function computeFlowDistribution(workspaceId: number): Record<string, number> {
   return dist;
 }
 
-async function generateAndStoreProgress(workspaceId: number): Promise<AiProgress> {
+async function genProgress(workspaceId: number): Promise<AiProgress> {
   const mf = getMasterFilter(workspaceId);
   const { confidence, sampleSize } = computeConfidence(workspaceId, mf);
   const atRisk = computeAtRisk(workspaceId, mf);
@@ -541,7 +541,7 @@ function computeMilestoneHash(
   return sha256(`${title}|${dueOn ?? ""}|${parts}`);
 }
 
-async function generateAndStoreMilestoneNotes(
+async function genMilestoneNotes(
   title: string,
   workspaceId: number,
 ): Promise<MilestoneNotes | null> {
@@ -566,6 +566,31 @@ async function generateAndStoreMilestoneNotes(
 }
 
 const PROGRESS_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Dedupe concurrent generations for the same target so two simultaneous callers await one
+// model call, not two. Keyed by task+target; the entry clears when the promise settles, so
+// a later request regenerates normally. Also collapses double-clicked /refresh.
+const inflight = new Map<string, Promise<unknown>>();
+function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inflight.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+  const p = fn().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+function generateAndStoreSummary(num: number, workspaceId: number): Promise<AiSummary | null> {
+  return dedupe(`summary:${workspaceId}:${num}`, () => genSummary(num, workspaceId));
+}
+function generateAndStoreProgress(workspaceId: number): Promise<AiProgress> {
+  return dedupe(`progress:${workspaceId}`, () => genProgress(workspaceId));
+}
+function generateAndStoreMilestoneNotes(
+  title: string,
+  workspaceId: number,
+): Promise<MilestoneNotes | null> {
+  return dedupe(`milestone:${workspaceId}:${title}`, () => genMilestoneNotes(title, workspaceId));
+}
 
 export async function aiRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { num: string } }>(
