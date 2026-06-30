@@ -490,9 +490,14 @@ type WebhookCommentPayload = {
 
 export function handleWebhook(event: string, payload: unknown): void {
   setKv("lastWebhookAt", new Date().toISOString());
+  // Drop the __raw request Buffer the webhook route attaches for HMAC verification:
+  // JSON.stringify serializes a Buffer as a giant {type,data:[...]} number array,
+  // ~5x the real payload, bloating sync_log on every event.
+  const { __raw, ...stored } = (payload ?? {}) as { __raw?: unknown };
+  void __raw;
   db()
     .prepare("INSERT INTO sync_log(event_type,payload,processed_at) VALUES(?,?,?)")
-    .run(event, JSON.stringify(payload), new Date().toISOString());
+    .run(event, JSON.stringify(stored), new Date().toISOString());
   // Debounced reconcile so changes appear without manual click.
   scheduleReconcile(10_000);
 

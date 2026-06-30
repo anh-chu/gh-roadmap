@@ -134,8 +134,11 @@ export async function metaRoutes(app: FastifyInstance): Promise<void> {
     const limits = aiLimits(workspaceId);
 
     // webhookEventsToday is a sync_log metric, not an issue metric — leave unscoped.
-    const webhookEventsToday = (q("SELECT COUNT(*) AS n FROM sync_log WHERE date(processed_at) = date('now')")
-      .get() as { n: number }).n;
+    // Sargable range (ISO timestamps sort lexicographically) so idx_sync_log_processed is used
+    // instead of a full-table SCAN with date(processed_at) wrapping the column.
+    const webhookEventsToday = (q(
+      "SELECT COUNT(*) AS n FROM sync_log WHERE processed_at >= date('now') AND processed_at < date('now','+1 day')",
+    ).get() as { n: number }).n;
 
     const now = new Date();
     const thisMonth = ymUtc(now);

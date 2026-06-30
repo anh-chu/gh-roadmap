@@ -9,7 +9,7 @@ import { constants as zlibConstants } from "node:zlib";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { initDb } from "./db.js";
+import { initDb, pruneSyncLog } from "./db.js";
 import { initGithub, getRateLimitStatus, isGithubConfigured } from "./github.js";
 import { reconcile, runDailySnapshot } from "./sync.js";
 import { backfillAllHealthSnapshots } from "./healthBackfill.js";
@@ -278,7 +278,21 @@ async function main(): Promise<void> {
       } catch (err) {
         app.log.error({ err }, "daily health snapshot failed");
       }
+      try {
+        const pruned = pruneSyncLog();
+        if (pruned > 0) app.log.info({ pruned }, "sync_log pruned");
+      } catch (err) {
+        app.log.error({ err }, "sync_log prune failed");
+      }
     }, NIGHTLY_MS);
+
+    // One-shot boot prune so an already-bloated DB sheds old rows now, not in 24h.
+    try {
+      const pruned = pruneSyncLog();
+      if (pruned > 0) app.log.info({ pruned }, "boot sync_log prune done");
+    } catch (err) {
+      app.log.error({ err }, "boot sync_log prune failed");
+    }
   } else {
     // Sync disabled — still backfill against whatever's in the DB so the sparkline
     // works in offline / no-token environments. Returns {0,0} on an empty DB.

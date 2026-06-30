@@ -115,6 +115,7 @@ export function initDb(path: string): Database.Database {
       payload      TEXT NOT NULL,
       processed_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_sync_log_processed ON sync_log(processed_at);
 
     CREATE TABLE IF NOT EXISTS kv (
       key   TEXT PRIMARY KEY,
@@ -746,6 +747,16 @@ export function q(sql: string): Database.Statement {
     _stmtCache.set(sql, s);
   }
   return s;
+}
+
+// sync_log.payload is written on every webhook but never read (only the daily row
+// count is). Left unbounded it grew the prod DB to ~1.5GB. Keep a 7-day window for
+// debugging; sargable predicate uses idx_sync_log_processed. ponytail: row delete
+// only — run a one-time VACUUM in prod to reclaim the already-bloated file.
+export function pruneSyncLog(retentionDays = 7): number {
+  return db()
+    .prepare("DELETE FROM sync_log WHERE processed_at < date('now', ?)")
+    .run(`-${retentionDays} days`).changes;
 }
 
 export function setKv(key: string, value: string): void {
