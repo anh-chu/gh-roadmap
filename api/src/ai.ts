@@ -652,24 +652,27 @@ export interface ReleaseNotesIssue {
   title: string;
   body: string | null;
   labels: string[];
+  state: "open" | "closed";
   mergedPrs: string[]; // titles of merged PRs linked to this issue — concrete "what shipped"
 }
 
 export interface ReleaseNotesInput {
   milestone: string;
   dueOn: string | null;
-  issues: ReleaseNotesIssue[]; // closed issues only
+  issues: ReleaseNotesIssue[]; // full milestone scope: shipped (closed) + in-progress (open)
 }
 
 function buildReleaseNotesUserText(input: ReleaseNotesInput): string {
   const lines: string[] = [];
   lines.push(`Milestone: ${input.milestone}`);
   if (input.dueOn) lines.push(`Due: ${input.dueOn.slice(0, 10)}`);
-  lines.push(`Shipped issues: ${input.issues.length}`);
+  const shipped = input.issues.filter((i) => i.state === "closed").length;
+  lines.push(`Shipped: ${shipped}, in progress: ${input.issues.length - shipped}`);
   lines.push("");
   for (const i of input.issues) {
     const labelPart = i.labels.length > 0 ? ` [${i.labels.join(", ")}]` : "";
-    lines.push(`#${i.number} ${i.title}${labelPart}`);
+    const stateTag = i.state === "closed" ? "shipped" : "in progress";
+    lines.push(`#${i.number} ${i.title}${labelPart} (${stateTag})`);
     if (i.body) lines.push(`  ${truncate(i.body, 2000)}`);
     if (i.mergedPrs.length > 0) {
       lines.push(`  Shipped via: ${i.mergedPrs.map((t) => `"${t}"`).join(", ")}`);

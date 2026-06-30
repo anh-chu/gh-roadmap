@@ -255,7 +255,7 @@ function MilestoneCard({
       </div>
       {expanded && (
         <div className="ms-card-body">
-          {r.title !== null && r.closed > 0 && (
+          {r.title !== null && r.total > 0 && (
             <ReleaseNotesPanel title={r.title} issuesByNum={issuesByNum} onOpen={onOpen} />
           )}
           {ordered.map((i) => (

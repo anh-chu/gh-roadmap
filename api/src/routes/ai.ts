@@ -446,6 +446,7 @@ interface MilestoneIssueRow {
   body: string | null;
   labels: string;
   updated_at: string;
+  state: string;
   milestone_due: string | null;
 }
 
@@ -484,15 +485,15 @@ function mergedPrTitlesByIssue(): Map<number, string[]> {
   return map;
 }
 
-// Load the master-filtered CLOSED issues that make up a milestone, plus its due date.
-// Returns null when the milestone has no in-scope shipped issues (nothing to write about).
-function loadMilestoneShipped(
+// Load the master-filtered issues that make up a milestone (shipped + in-progress), plus its
+// due date. Returns null when the milestone has no in-scope issues at all (nothing to write about).
+function loadMilestoneScope(
   title: string,
   workspaceId: number,
 ): { issues: ReleaseNotesIssue[]; rows: MilestoneIssueRow[]; dueOn: string | null } | null {
   const rows = db()
     .prepare(
-      "SELECT number, title, body, labels, updated_at, milestone_due FROM issues WHERE milestone = ? AND state = 'closed' ORDER BY number ASC",
+      "SELECT number, title, body, labels, updated_at, state, milestone_due FROM issues WHERE milestone = ? ORDER BY number ASC",
     )
     .all(title) as MilestoneIssueRow[];
   const mf = getMasterFilter(workspaceId);
@@ -516,6 +517,7 @@ function loadMilestoneShipped(
       title: r.title,
       body: r.body,
       labels,
+      state: r.state === "closed" ? "closed" : "open",
       mergedPrs: prTitles.get(r.number) ?? [],
     });
   }
@@ -543,7 +545,7 @@ async function generateAndStoreMilestoneNotes(
   title: string,
   workspaceId: number,
 ): Promise<MilestoneNotes | null> {
-  const loaded = loadMilestoneShipped(title, workspaceId);
+  const loaded = loadMilestoneScope(title, workspaceId);
   if (!loaded) return null;
   const { issues, rows, dueOn } = loaded;
   const hash = computeMilestoneHash(title, dueOn, rows, issues);
@@ -709,9 +711,9 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
       const title = req.params.title;
-      const loaded = loadMilestoneShipped(title, req.workspaceId);
+      const loaded = loadMilestoneScope(title, req.workspaceId);
       if (!loaded) {
-        reply.code(404).send({ error: "no shipped issues for this milestone" });
+        reply.code(404).send({ error: "no in-scope issues for this milestone" });
         return;
       }
       const hash = computeMilestoneHash(title, loaded.dueOn, loaded.rows, loaded.issues);
@@ -731,7 +733,7 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
       try {
         const result = await generateAndStoreMilestoneNotes(title, req.workspaceId);
         if (!result) {
-          reply.code(404).send({ error: "no shipped issues for this milestone" });
+          reply.code(404).send({ error: "no in-scope issues for this milestone" });
           return;
         }
         return result;
@@ -756,7 +758,7 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
       try {
         const result = await generateAndStoreMilestoneNotes(req.params.title, req.workspaceId);
         if (!result) {
-          reply.code(404).send({ error: "no shipped issues for this milestone" });
+          reply.code(404).send({ error: "no in-scope issues for this milestone" });
           return;
         }
         return result;
