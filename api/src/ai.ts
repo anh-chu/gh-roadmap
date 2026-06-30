@@ -121,6 +121,20 @@ export function aiModel(): string {
   return process.env.AI_MODEL ?? "";
 }
 
+// List model ids from the OpenAI-compatible endpoint (GET /v1/models). Gated only on
+// AI_BASE_URL, NOT isAiEnabled — the model picker is exactly what you use when no model is
+// configured yet, so the stricter gate would lock you out of the list you need.
+export async function listModels(): Promise<string[]> {
+  const base = process.env.AI_BASE_URL;
+  if (!base) throw new Error("AI not configured — set AI_BASE_URL");
+  if (_client === null) {
+    _client = new OpenAI({ baseURL: base, apiKey: process.env.AI_API_KEY ?? "sk-local" });
+  }
+  const page = await _client.models.list();
+  const ids = page.data.map((m) => m.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+  return [...new Set(ids)].sort();
+}
+
 // ─────────────── COST CONTROLS (max_tokens cap · rate limit · daily budget) ───────────────
 // All admin-configured in workspace_config; 0 = disabled/unlimited. Enforced at the single
 // chat chokepoint (runChat) so every AI surface inherits the limits. Breaches throw — routes

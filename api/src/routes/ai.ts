@@ -6,6 +6,7 @@ import {
   aiModel,
   analyzeProgress,
   isAiEnabled,
+  listModels,
   releaseNotes,
   summarizeIssue,
   type IssueSummaryComment,
@@ -769,6 +770,25 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  // Model catalogue for the AI-settings picker. Gated only on AI_BASE_URL so it works before
+  // any model is configured. Returns [] shape via {models}; errors map to 502 (upstream issue).
+  app.get("/api/ai/models", async (req, reply): Promise<{ models: string[] } | undefined> => {
+    if (!process.env.AI_BASE_URL) {
+      reply.code(503).send({ error: "AI not configured — set AI_BASE_URL" });
+      return;
+    }
+    try {
+      return { models: await listModels() };
+    } catch (err) {
+      req.log.error({ err }, "ai models list failed");
+      reply.code(502).send({
+        error: "failed to list models",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+  });
 
   // Touch `aiModel` to keep the import live for tooling; we surface model in returns.
   void aiModel;

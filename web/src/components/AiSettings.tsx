@@ -1,5 +1,8 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import type { MetaResponse, WorkspaceConfig } from "../../../shared/types";
+import { fetchAiModels } from "../lib/api";
+
+const MODEL_LIST_ID = "ai-model-options";
 
 type AiConfigPatch = {
   aiModelSummary?: string | null;
@@ -93,10 +96,11 @@ interface RowProps {
   desc: string;
   value: string | null;
   envDefault: string | null;
+  listId: string;
   onCommit: (next: string | null) => void;
 }
 
-function AiModelRow({ label, desc, value, envDefault, onCommit }: RowProps): JSX.Element {
+function AiModelRow({ label, desc, value, envDefault, listId, onCommit }: RowProps): JSX.Element {
   const [draft, setDraft] = useState<string>(value ?? "");
 
   useEffect(() => {
@@ -122,6 +126,7 @@ function AiModelRow({ label, desc, value, envDefault, onCommit }: RowProps): JSX
         <input
           className="tag-input"
           style={{ flex: 1 }}
+          list={listId}
           placeholder={envDefault ?? "(no env default — required)"}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -246,6 +251,23 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
   ref,
 ) {
   const envLabel = envDefault ?? "(unset)";
+  const [models, setModels] = useState<string[]>([]);
+
+  // Pull the model catalogue once when the popover opens. Failures leave the list empty,
+  // so the inputs stay plain free-text.
+  useEffect(() => {
+    let alive = true;
+    fetchAiModels()
+      .then((m) => {
+        if (alive) setModels(m);
+      })
+      .catch(() => {
+        /* free-text fallback */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <div
@@ -254,6 +276,11 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
       style={{ top: anchor.bottom + 6, right: Math.max(8, window.innerWidth - anchor.right), minWidth: 320 }}
       role="dialog"
     >
+      <datalist id={MODEL_LIST_ID}>
+        {models.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
       <div className="pop-section">
         <div className="pop-label">AI models</div>
         <div className="scope-help" style={{ fontSize: 11, opacity: 0.75 }}>
@@ -265,6 +292,7 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         desc="Per-issue summary in drawer + hover"
         value={config.aiModelSummary}
         envDefault={envDefault}
+        listId={MODEL_LIST_ID}
         onCommit={(v) => onChange({ aiModelSummary: v })}
       />
       <AiModelRow
@@ -272,6 +300,7 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         desc="AI read on the Progress tab"
         value={config.aiModelProgress}
         envDefault={envDefault}
+        listId={MODEL_LIST_ID}
         onCommit={(v) => onChange({ aiModelProgress: v })}
       />
       <AiModelRow
@@ -279,6 +308,7 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         desc="Capture-to-draft AI in the Insights inbox"
         value={config.aiModelExtract}
         envDefault={envDefault}
+        listId={MODEL_LIST_ID}
         onCommit={(v) => onChange({ aiModelExtract: v })}
       />
       <AiModelRow
@@ -286,6 +316,7 @@ const AiPopover = forwardRef<HTMLDivElement, PopoverProps>(function AiPopover(
         desc="Per-milestone release notes on the Milestones tab"
         value={config.aiModelRelease}
         envDefault={envDefault}
+        listId={MODEL_LIST_ID}
         onCommit={(v) => onChange({ aiModelRelease: v })}
       />
       <div className="pop-section" style={{ borderTop: "1px solid var(--border, #e2e2e2)", marginTop: 4, paddingTop: 8 }}>

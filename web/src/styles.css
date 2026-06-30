@@ -3318,6 +3318,10 @@ select.field-input {
 .tag-input::placeholder {
   color: var(--ink-4);
 }
+/* Hide the native datalist dropdown arrow (browser default, clashes with the popover). */
+.tag-input::-webkit-calendar-picker-indicator {
+  display: none;
+}
 
 /* Range / time-axis control */
 .range-control {

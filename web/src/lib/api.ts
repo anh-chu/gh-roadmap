@@ -400,6 +400,15 @@ export async function refreshAiProgress(): Promise<AiProgress | null> {
   return jsonOrNullOn503<AiProgress>(r);
 }
 
+// Model catalogue for the AI-settings picker. Returns [] on any failure (AI off, upstream
+// error) so the picker silently falls back to free-text entry.
+export async function fetchAiModels(): Promise<string[]> {
+  const r = await fetch("/api/ai/models");
+  if (!r.ok) return [];
+  const body = (await r.json()) as { models?: string[] };
+  return body.models ?? [];
+}
+
 export async function fetchPmActions(): Promise<PmActionsResponse> {
   const r = await fetch("/api/pm-actions");
   return jsonOrThrow<PmActionsResponse>(r);

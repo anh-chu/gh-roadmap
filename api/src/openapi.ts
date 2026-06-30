@@ -584,6 +584,15 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       "/api/ai/progress/refresh": {
         post: op("ai", "refreshAiProgress", "Force-regenerate Progress AI read.", { responses: ok({ $ref: "#/components/schemas/AiBlock" }), "x-side-effects": true, "x-ai-call": true }),
       },
+      "/api/ai/models": {
+        get: op("ai", "listAiModels", "List model ids from the configured OpenAI-compatible endpoint (GET /v1/models), for the per-task model picker. 503 when AI_BASE_URL is unset.", {
+          responses: ok({
+            type: "object",
+            properties: { models: { type: "array", items: { type: "string" } } },
+            required: ["models"],
+          }),
+        }),
+      },
 
       "/api/ai/milestone-notes/{title}": {
         get: op("ai", "getMilestoneNotes", "Read cached or freshly generated stakeholder release notes for a milestone (derived from its closed issues).", {
