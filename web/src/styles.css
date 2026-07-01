@@ -1908,6 +1908,8 @@ a.d-num:hover {
   padding: 4px;
   z-index: 200;
   min-width: 140px;
+  max-height: 320px;
+  overflow-y: auto;
   font-family: var(--sans);
   font-size: 12px;
 }
@@ -1926,6 +1928,19 @@ a.d-num:hover {
 }
 .edit-dropdown button:hover {
   background: var(--hover);
+}
+.edit-dropdown-header {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+.edit-dropdown-header:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px solid var(--border-2);
+  padding-top: 6px;
 }
 .d-state.editable {
   cursor: pointer;

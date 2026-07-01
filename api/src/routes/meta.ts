@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { q, getKv, setKv } from "../db.js";
 import { getAuthenticatedLogin, getRateLimitStatus, getRepoSlug, listRepoLabels, listRepoMilestones, isAppAuth } from "../github.js";
-import type { BucketingField, BucketsInfo } from "../../../shared/types.js";
+import type { BucketingField, BucketsInfo, MilestoneMeta } from "../../../shared/types.js";
 import { getMasterFilter, masterFilterSql, passesMasterFilter } from "../masterFilter.js";
 import { projectFilter } from "./projects.js";
 import { aiTokensUsedToday, aiTokensUsedThisMonth, aiRequestsLastMinute, aiLimits } from "../ai.js";
@@ -100,7 +100,7 @@ function scopedCount(workspaceId: number, state: "open" | "closed"): number {
 // The repo label/milestone catalog changes rarely; cache it so opening the
 // drawer doesn't hit GitHub each time. Falls back to empty (client unions with
 // in-use values) when GitHub is unconfigured or the call fails.
-let catalogCache: { labels: string[]; milestones: string[]; at: number } | null = null;
+let catalogCache: { labels: string[]; milestones: MilestoneMeta[]; at: number } | null = null;
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 
 export async function metaRoutes(app: FastifyInstance): Promise<void> {

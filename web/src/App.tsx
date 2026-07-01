@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AuthUser, Issue } from "../../shared/types";
+import type { AuthUser, Issue, MilestoneMeta } from "../../shared/types";
 import { Header } from "./components/Header";
 import { Toolbar } from "./components/Toolbar";
 import type { FilterKey, TabKey } from "./components/Toolbar";
@@ -214,11 +214,40 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
   }, [issues, catalog.labels]);
 
   const knownMilestones = useMemo(() => {
-    const s = new Set<string>(catalog.milestones);
+    const s = new Set<string>(catalog.milestones.map((m) => m.title));
     for (const i of issues) if (i.milestone) s.add(i.milestone);
     return [...s].sort();
   }, [issues, catalog.milestones]);
 
+  // Milestone picker for the drawer: two sections. Unreleased (open) sorted
+  // oldest→newest due date so the nearest deadline is on top; Released (closed)
+  // sorted newest→oldest. Issue milestones missing from the catalog fall back to
+  // open with their mirrored due date (state unknown → treated unreleased).
+  const milestoneOptions = useMemo(() => {
+    const meta = new Map<string, MilestoneMeta>(catalog.milestones.map((m) => [m.title, m]));
+    for (const i of issues)
+      if (i.milestone && !meta.has(i.milestone))
+        meta.set(i.milestone, { title: i.milestone, dueOn: i.milestoneDue, state: "open" });
+    const byDue = (a: MilestoneMeta, b: MilestoneMeta, dir: number): number => {
+      if (a.dueOn === b.dueOn) return a.title.localeCompare(b.title);
+      if (a.dueOn === null) return 1; // nulls last in both sections
+      if (b.dueOn === null) return -1;
+      return dir * a.dueOn.localeCompare(b.dueOn);
+    };
+    const all = [...meta.values()];
+    const unreleased = all.filter((m) => m.state === "open").sort((a, b) => byDue(a, b, 1));
+    const released = all.filter((m) => m.state === "closed").sort((a, b) => byDue(a, b, -1));
+    const opts: { label: string; val: string | null; header?: boolean }[] = [];
+    if (unreleased.length) {
+      opts.push({ label: "Unreleased", val: null, header: true });
+      for (const m of unreleased) opts.push({ label: m.title, val: m.title });
+    }
+    if (released.length) {
+      opts.push({ label: "Released", val: null, header: true });
+      for (const m of released) opts.push({ label: m.title, val: m.title });
+    }
+    return opts;
+  }, [issues, catalog.milestones]);
   const openIssue = useMemo(() => issues.find((i) => i.num === openNum) ?? null, [issues, openNum]);
   const issuesByNum = useMemo(() => new Map(issues.map((i) => [i.num, i])), [issues]);
 
@@ -414,7 +443,7 @@ export function App({ authUser, initialTheme }: { authUser: AuthUser | null; ini
         currentUser={currentUser}
         knownAssignees={knownAssignees}
         knownLabels={knownLabels}
-        knownMilestones={knownMilestones}
+        milestoneOptions={milestoneOptions}
         linkedPulls={openIssue ? pulls.byIssue.get(openIssue.num) ?? [] : []}
         flowResult={openIssue ? flow.get(openIssue.num) : undefined}
         issuesByNum={issuesByNum}

@@ -825,7 +825,7 @@ const components: Record<string, JsonSchema> = {
     },
     required: ["email", "name", "role", "envAdmin", "createdAt", "updatedAt"],
   },
-  CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "string" } } }, required: ["labels", "milestones"] },
+  CatalogResponse: { type: "object", properties: { labels: { type: "array", items: { type: "string" } }, milestones: { type: "array", items: { type: "object", properties: { title: { type: "string" }, dueOn: { ...nullableString, description: "Milestone due_on (ISO date-time)" }, state: { type: "string", enum: ["open", "closed"] } }, required: ["title", "dueOn", "state"] } } }, required: ["labels", "milestones"] },
   WorkspaceConfig: { type: "object", additionalProperties: true, description: "Per-pod workspace configuration. Includes `todoStatusName` (default \"To Do\") and `backlogStatusName` (default \"Backlog\") — the pinned GitHub Project Status option names that back the Roadmap board's TODO / Backlog meta columns." },
   WorkspaceConfigPatch: { type: "object", additionalProperties: true, description: "Partial workspace config update (admin only). Accepts `todoStatusName` / `backlogStatusName` (1-64 chars) among the existing fields." },
   Workspace: {

@@ -1,4 +1,5 @@
 import { App, Octokit } from "octokit";
+import type { MilestoneMeta } from "../../shared/types.js";
 
 export type GhIssue = {
   number: number;
@@ -556,8 +557,8 @@ export async function listRepoLabels(): Promise<string[]> {
 }
 
 // Full repo milestone set (open + closed), by title.
-export async function listRepoMilestones(): Promise<string[]> {
-  const out: string[] = [];
+export async function listRepoMilestones(): Promise<MilestoneMeta[]> {
+  const out = new Map<string, MilestoneMeta>();
   for (const state of ["open", "closed"] as const) {
     const iter = octo().paginate.iterator(octo().rest.issues.listMilestones, {
       owner: _owner,
@@ -565,9 +566,10 @@ export async function listRepoMilestones(): Promise<string[]> {
       state,
       per_page: 100,
     });
-    for await (const { data } of iter) for (const m of data) out.push(m.title);
+    for await (const { data } of iter)
+      for (const m of data) out.set(m.title, { title: m.title, dueOn: m.due_on ?? null, state });
   }
-  return [...new Set(out)].sort();
+  return [...out.values()];
 }
 
 // Full repo milestone set with due dates, for the milestone_due reconcile pass.

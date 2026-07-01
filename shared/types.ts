@@ -184,9 +184,14 @@ export interface MetaResponse {
 }
 
 // Full repo label + milestone catalog (all repo values, not just in-use).
+export interface MilestoneMeta {
+  title: string;
+  dueOn: string | null;
+  state: "open" | "closed";
+}
 export interface CatalogResponse {
   labels: string[];
-  milestones: string[];
+  milestones: MilestoneMeta[];
 }
 
 export interface IssuePatchBody {
