@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../../../shared/types";
-import { logout, unlinkGithub } from "../lib/api";
+import { logout, rotateCaptureToken, unlinkGithub } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 
 // Avatar button → popout dropdown with the signed-in identity and an explicit Sign out button.
@@ -10,6 +10,7 @@ export function UserMenu({ user }: { user: AuthUser }): JSX.Element {
   const popRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const [rotating, setRotating] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -35,6 +36,20 @@ export function UserMenu({ user }: { user: AuthUser }): JSX.Element {
     const r = btnRef.current?.getBoundingClientRect();
     if (r) setAnchor(r);
     setOpen((v) => !v);
+  };
+
+  const doRotate = async (): Promise<void> => {
+    setRotating(true);
+    try {
+      const token = await rotateCaptureToken();
+      try {
+        await navigator.clipboard.writeText(token);
+      } catch {
+        window.prompt("Copy token", token);
+      }
+    } finally {
+      setRotating(false);
+    }
   };
 
   const initial = user.name?.[0]?.toUpperCase() ?? user.email[0]?.toUpperCase() ?? "?";
@@ -86,6 +101,18 @@ export function UserMenu({ user }: { user: AuthUser }): JSX.Element {
               )}
             </div>
           )}
+
+          <div className="pop-section">
+            <button
+              className="btn"
+              style={{ width: "100%", justifyContent: "center" }}
+              onClick={() => { void doRotate(); }}
+              disabled={rotating}
+              title="Generate a new capture token and copy it"
+            >
+              <span>{rotating ? "Rotating…" : "Rotate token"}</span>
+            </button>
+          </div>
           <div className="pop-section">
             <button
               className="btn"

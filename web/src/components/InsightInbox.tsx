@@ -7,6 +7,7 @@ import type {
   InsightMergePreview,
 } from "../../../shared/types";
 import { InsightMergePanel } from "./InsightMergePanel";
+import { getCaptureToken } from "../lib/api";
 
 interface InsightInboxProps {
   drafts: ApiInsightDraft[];
@@ -163,6 +164,8 @@ export function InsightInbox(props: InsightInboxProps): JSX.Element {
           <span className="insight-draft-source-chip">{d.sourceType}</span>
           <span className="insight-draft-age">{ageLabel(d.createdAt)}</span>
           <span className="insight-draft-title">{d.title || "untitled"}</span>
+
+          {d.capturedBy && <span className="insight-row-owner">Captured by {d.capturedBy}</span>}
           {d.dupKind && (
             <span
               className="insight-dup-badge"
@@ -350,8 +353,14 @@ function fallbackCopy(s: string): void {
 
 function CaptureApiModal({ onClose }: { onClose: () => void }): JSX.Element {
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-  const curl = `curl -X POST ${origin}/api/insights/capture \\
-  -H "content-type: application/json" \\
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => {
+    void getCaptureToken().then(setToken).catch(() => setToken(null));
+  }, []);
+  const bearer = token ?? "<token>";
+  const curl = `curl -X POST ${origin}/api/insights/capture \
+  -H "Authorization: Bearer ${bearer}" \
+  -H "content-type: application/json" \
   -d '{
     "sourceType": "slack",
     "sourceUrl": "https://acme.slack.com/archives/C123/p456",
@@ -366,9 +375,9 @@ rawText      required   the raw content (≤ 32k chars)`;
 
   const response = `{ "draft": { "id": 7, "state": "pending", "title": "...", ... } }`;
 
-  const agentBrief = `# GH Roadmap — Insight Capture API
+  const agentBrief = `# GH Roadmap - Insight Capture API
 
-Drop captured material (call notes, Slack threads, emails, doc excerpts) into the PM's Inbox via this localhost-only endpoint. The dashboard runs AI extraction on your behalf, surfaces the draft for human review, and publishes the approved version as a PR on the product repo.
+Drop captured material (call notes, Slack threads, emails, doc excerpts) into the PM's Inbox. Localhost single-user mode needs no auth. Prod with login on needs a per-user token from Rotate token in the avatar menu. The dashboard runs AI extraction on your behalf, surfaces the draft for human review, and publishes the approved version as a PR on the product repo.
 
 ## Endpoint
 
@@ -389,10 +398,10 @@ ${response}
 
 ## Notes
 
-- No auth — localhost only.
+- Localhost single-user: no auth. Prod with login on: include Authorization: Bearer <token> from Rotate token in avatar menu.
 - AI extraction (title, type, accounts, related issues, key quotes, body draft) runs automatically when the dashboard's AI is configured. When AI is disabled, the draft is created with empty fields for manual fill-in.
 - Each captured item lands as a pending draft. The PM reviews it in the Inbox and clicks Publish to open a PR on the product repo's insights/ directory.
-- Idempotency: capture is append-only — posting twice still creates two drafts, but the dashboard flags a likely duplicate (exact re-ingest, or near-identical text from the same source) on the new draft so the PM can discard the redundant one.
+- Idempotency: capture is append-only - posting twice still creates two drafts, but the dashboard flags a likely duplicate (exact re-ingest, or near-identical text from the same source) on the new draft so the PM can discard the redundant one.
 `;
 
   useEffect(() => {
@@ -432,8 +441,7 @@ ${response}
         </div>
         <div className="modal-body">
           <p className="capture-api-blurb">
-            Any agent or script can drop raw material into the Inbox. The endpoint
-            is unauthenticated and localhost-only — wire it to your own automations.
+            Any agent or script can drop raw material into the Inbox. Localhost single-user mode needs no auth. Prod with login on needs a per-user token from Rotate token in the avatar menu.
           </p>
 
           <div className="capture-api-section-head">

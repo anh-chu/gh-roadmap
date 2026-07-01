@@ -277,6 +277,7 @@ export function initDb(path: string): Database.Database {
       type            TEXT,
       date            TEXT,
       owner           TEXT,
+      captured_by     TEXT,
       confidence      TEXT,
       accounts_json   TEXT NOT NULL DEFAULT '[]',
       related_issues_json TEXT NOT NULL DEFAULT '[]',
@@ -326,7 +327,9 @@ export function initDb(path: string): Database.Database {
       name        TEXT,
       role        TEXT NOT NULL DEFAULT 'viewer',  -- viewer | editor | admin
       created_at  TEXT NOT NULL,
-      updated_at  TEXT NOT NULL
+      updated_at  TEXT NOT NULL,
+      api_token_hash TEXT,
+      api_token_enc  TEXT
     );
 
     CREATE TABLE IF NOT EXISTS workspace_config (
@@ -396,6 +399,8 @@ export function initDb(path: string): Database.Database {
   if (!userColNames.has("github_login")) db.exec("ALTER TABLE users ADD COLUMN github_login TEXT");
   if (!userColNames.has("github_token_enc")) db.exec("ALTER TABLE users ADD COLUMN github_token_enc TEXT");
   if (!userColNames.has("github_linked_at")) db.exec("ALTER TABLE users ADD COLUMN github_linked_at TEXT");
+  if (!userColNames.has("api_token_hash")) db.exec("ALTER TABLE users ADD COLUMN api_token_hash TEXT");
+  if (!userColNames.has("api_token_enc")) db.exec("ALTER TABLE users ADD COLUMN api_token_enc TEXT");
 
   // PM-actions cache reuses ai_insights but needs a candidate-set hash to invalidate when
   // the underlying issues change. Older DBs pre-date it.
@@ -560,6 +565,9 @@ export function initDb(path: string): Database.Database {
   // Insight capture dedup flags (set once at capture; null = no dup detected).
   const draftCols = db.prepare("PRAGMA table_info(insight_drafts)").all() as { name: string }[];
   const draftColNames = new Set(draftCols.map((c) => c.name));
+  if (!draftColNames.has("captured_by")) {
+    db.exec("ALTER TABLE insight_drafts ADD COLUMN captured_by TEXT");
+  }
   if (!draftColNames.has("dup_of")) {
     db.exec("ALTER TABLE insight_drafts ADD COLUMN dup_of INTEGER");
   }
@@ -782,6 +790,8 @@ export type UserRow = {
   github_login: string | null;
   github_token_enc: string | null;
   github_linked_at: string | null;
+  api_token_hash: string | null;
+  api_token_enc: string | null;
 };
 
 export function getUser(email: string): UserRow | undefined {
@@ -816,6 +826,18 @@ export function setUserRole(email: string, role: UserRow["role"]): void {
   db()
     .prepare("UPDATE users SET role = ?, updated_at = ? WHERE email = ?")
     .run(role, new Date().toISOString(), email.toLowerCase());
+}
+
+export function setUserApiToken(email: string, apiTokenHash: string, apiTokenEnc: string | null): void {
+  db()
+    .prepare("UPDATE users SET api_token_hash = ?, api_token_enc = ?, updated_at = ? WHERE email = ?")
+    .run(apiTokenHash, apiTokenEnc, new Date().toISOString(), email.toLowerCase());
+}
+
+export function getUserByApiTokenHash(apiTokenHash: string): { email: string; name: string | null; role: UserRow["role"] } | undefined {
+  return db()
+    .prepare("SELECT email, name, role FROM users WHERE api_token_hash = ?")
+    .get(apiTokenHash) as { email: string; name: string | null; role: UserRow["role"] } | undefined;
 }
 
 // ---- GitHub connection (per-user write identity — layer 3) ----------------------------

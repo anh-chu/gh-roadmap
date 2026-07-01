@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { dump as yamlDump } from "js-yaml";
 import { db, getKv } from "../db.js";
@@ -329,6 +330,7 @@ interface DraftRow {
   type: string | null;
   date: string | null;
   owner: string | null;
+  captured_by: string | null;
   confidence: string | null;
   accounts_json: string;
   related_issues_json: string;
@@ -371,6 +373,7 @@ function rowToDraft(r: DraftRow): ApiInsightDraft {
     type: r.type,
     date: r.date,
     owner: r.owner,
+    capturedBy: r.captured_by,
     confidence: r.confidence,
     accounts: jsonArr(r.accounts_json, isStr),
     relatedIssues: jsonArr(r.related_issues_json, isPosInt),
@@ -517,6 +520,11 @@ function registerDraftRoutes(app: FastifyInstance): void {
 
       const relatedIssues = matchIssuesFromHints(extracted.relatedIssueHints);
       const owner = getKv("currentUser");
+      const capturedBy = req.user?.email;
+      if (!capturedBy) {
+        reply.code(401).send({ error: "authentication required" });
+        return;
+      }
       const date = todayUtc();
 
       // Dedup: flag (never block) a likely re-ingest of the same/near-same text.
@@ -532,10 +540,10 @@ function registerDraftRoutes(app: FastifyInstance): void {
         .prepare(
           `INSERT INTO insight_drafts (
              created_at, updated_at, source_type, source_url, raw_text, hint,
-             title, type, date, owner, confidence,
+             title, type, date, owner, captured_by, confidence,
              accounts_json, related_issues_json, key_quotes_json, body_draft,
              state, dup_of, dup_kind, dup_score
-           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .run(
           now,
@@ -548,6 +556,7 @@ function registerDraftRoutes(app: FastifyInstance): void {
           extracted.type,
           date,
           owner ? `@${owner}` : null,
+          capturedBy,
           extracted.confidence,
           JSON.stringify(extracted.accounts),
           JSON.stringify(relatedIssues),
@@ -564,6 +573,7 @@ function registerDraftRoutes(app: FastifyInstance): void {
         reply.code(500).send({ error: "draft created but could not be read back" });
         return;
       }
+      assert(row.captured_by !== null, "captured_by missing after capture insert");
       return rowToDraft(row);
     },
   );

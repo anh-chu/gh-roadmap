@@ -592,6 +592,7 @@ export interface ApiInsightDraft {
   type: string | null;
   date: string | null;
   owner: string | null;
+  capturedBy: string | null;
   confidence: string | null;
   accounts: string[];
   relatedIssues: number[];

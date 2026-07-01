@@ -104,6 +104,20 @@ export async function logout(): Promise<void> {
   await fetch("/api/auth/logout", { method: "POST" });
 }
 
+export async function rotateCaptureToken(): Promise<string> {
+  const r = await fetch("/api/me/token", { method: "POST" });
+  const { token } = await jsonOrThrow<{ token: string }>(r);
+  return token;
+}
+
+// Live capture token for prefilling the guide; auto-mints on first call. Null when a token
+// exists but can't be recovered (server has no TOKEN_ENC_KEY) — UI shows a <token> placeholder.
+export async function getCaptureToken(): Promise<string | null> {
+  const r = await fetch("/api/me/token");
+  const { token } = await jsonOrThrow<{ token: string | null }>(r);
+  return token;
+}
+
 // Persist the caller's theme preference (per-user, server-side).
 export async function patchTheme(theme: "light" | "dark"): Promise<void> {
   const r = await fetch("/api/auth/theme", {

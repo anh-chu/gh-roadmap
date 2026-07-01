@@ -302,6 +302,10 @@ export function InsightDraftEditor(props: InsightDraftEditorProps): JSX.Element 
                   />
                 </label>
                 <label className="insight-draft-field">
+                  <span className="field-label">Captured by</span>
+                  <input className="field-input" value={draft.capturedBy ?? "unknown"} disabled readOnly />
+                </label>
+                <label className="insight-draft-field">
                   <span className="field-label">Accounts <span className="hint">comma-separated</span></span>
                   <input
                     className="field-input"

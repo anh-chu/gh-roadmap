@@ -5,11 +5,12 @@ import fastifyCookie from "@fastify/cookie";
 import middie from "@fastify/middie";
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
+import { createHash } from "node:crypto";
 import { constants as zlibConstants } from "node:zlib";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { initDb, pruneSyncLog } from "./db.js";
+import { getUserByApiTokenHash, initDb, pruneSyncLog } from "./db.js";
 import { initGithub, getRateLimitStatus, isGithubConfigured } from "./github.js";
 import { reconcile, runDailySnapshot } from "./sync.js";
 import { backfillAllHealthSnapshots } from "./healthBackfill.js";
@@ -121,7 +122,7 @@ async function main(): Promise<void> {
   // Public paths: the auth endpoints themselves (login/callback/me/logout). Everything else
   // under /api requires a valid session. /webhook is HMAC-verified separately and stays open.
   app.addHook("onRequest", async (req, reply) => {
-    const user = userFromRequest(req);
+    let user = userFromRequest(req);
     if (user) req.user = user;
     // Active pod: resolved after the user, from the rm_workspace preference cookie
     // (falls back to the first non-archived pod). Route handlers read req.workspaceId.
@@ -131,16 +132,31 @@ async function main(): Promise<void> {
     const url = req.url.split("?")[0] ?? "";
     if (!url.startsWith("/api/")) return; // SPA + assets load so the login screen can render
     if (url.startsWith("/api/auth/")) return; // login flow must be reachable while logged out
+    if (!user && url === "/api/insights/capture") {
+      const authHeader = req.headers.authorization;
+      const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+      if (bearer) {
+        const tokenUser = getUserByApiTokenHash(createHash("sha256").update(bearer).digest("hex"));
+        if (tokenUser) {
+          user = req.user = {
+            email: tokenUser.email,
+            name: tokenUser.name ?? tokenUser.email,
+            picture: null,
+            role: tokenUser.role,
+            isAdmin: tokenUser.role === "admin",
+          };
+        }
+      }
+    }
     if (!user) return reply.code(401).send({ error: "authentication required" });
 
     // Global viewer gate (layer 2): viewers are read-only — any non-GET/HEAD /api request is 403
     // unless exempt. Rule for exemption: writes that touch only the caller's own row/cookie or
-    // feed a reviewed inbox, never shared state directly. Today: the auth flow (logout is a POST)
-    // and insight capture (owner decision 2026-06-11: capture lands in the PM-reviewed inbox, so
-    // viewers — e.g. sales hearing customer signal — may capture), and the pod switch
+    // feed a reviewed inbox, never shared state directly. Today: the auth flow (logout is a POST),
+    // API token rotation (own users row), insight capture (PM-reviewed inbox), and the pod switch
     // (/api/workspaces/active), which only writes the caller's own rm_workspace cookie.
     // Note the gate is method-based: lazy AI cache-fill on GET is allowed for viewers by design.
-    const viewerExemptPrefixes = ["/api/auth/", "/api/insights/capture", "/api/workspaces/active"];
+    const viewerExemptPrefixes = ["/api/auth/", "/api/me/token", "/api/insights/capture", "/api/workspaces/active"];
     if (
       user.role === "viewer" &&
       req.method !== "GET" &&

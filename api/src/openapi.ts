@@ -81,7 +81,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
       version: "0.2.0",
       summary: "Local PM roadmap API for issues, planning metadata, insights, accounts, AI reads, health, and sync actions.",
       description: [
-        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings, user roles) return 403 for non-admins. Roles: viewer / editor / admin — viewers get 403 on any non-GET/HEAD endpoint except /api/auth/*, /api/insights/capture, and /api/workspaces/active.",
+        "Auth is optional. When GOOGLE_CLIENT_ID/SECRET are unset the app runs single-user on localhost with no auth. When set, every `/api/*` endpoint (except `/api/auth/*`) requires a Google session cookie and returns 401 otherwise; admin-only endpoints (data export/import, AI model settings, user roles) return 403 for non-admins. Roles: viewer / editor / admin - viewers get 403 on any non-GET/HEAD endpoint except /api/auth/*, /api/me/token, /api/insights/capture, and /api/workspaces/active.",
         "",
         "**Scoping.** GET reads are filtered by the active workspace's master filter (label include/exclude lists, default `include: [pod:mht]`). Write endpoints are intentionally NOT filtered. The active workspace (pod) is a preference carried in the `rm_workspace` cookie — set via `POST /api/workspaces/active`; falls back to the first non-archived workspace.",
         "",
@@ -122,6 +122,15 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
             properties: { theme: { type: "string", enum: ["light", "dark"] } },
           }),
           responses: ok({ type: "object", properties: { ok: { type: "boolean" } } }),
+          "x-side-effects": true,
+        }),
+      },
+      "/api/me/token": {
+        get: op("auth", "getApiToken", "Return the caller's capture token, minting one on first call. token is null when a token exists but the server has no TOKEN_ENC_KEY to recover it.", {
+          responses: ok({ type: "object", properties: { token: { type: ["string", "null"] } }, required: ["token"], additionalProperties: false }),
+        }),
+        post: op("auth", "rotateApiToken", "Rotate the caller's API capture token and return it once.", {
+          responses: ok({ type: "object", properties: { token: { type: "string" } }, required: ["token"], additionalProperties: false }),
           "x-side-effects": true,
         }),
       },
@@ -516,6 +525,7 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
         post: op("insights", "captureInsight", "Capture raw customer signal, extract fields, and create draft inbox item.", {
           requestBody: body({ $ref: "#/components/schemas/InsightCapture" }),
           responses: ok({ $ref: "#/components/schemas/InsightDraft" }),
+          security: [{ bearerAuth: [] }],
           "x-side-effects": true,
           "x-ai-call": true,
         }),
@@ -658,6 +668,9 @@ export function buildOpenApiDoc(baseUrl: string): OpenApiDoc {
     },
     components: {
       schemas: components,
+      securitySchemes: {
+        bearerAuth: { type: "http", scheme: "bearer" },
+      },
     },
   };
 }
@@ -886,7 +899,7 @@ const components: Record<string, JsonSchema> = {
     },
     additionalProperties: false,
   },
-  InsightDraft: { type: "object", additionalProperties: true },
+  InsightDraft: { type: "object", properties: { capturedBy: { type: ["string", "null"] } }, additionalProperties: true },
   InsightDraftPatch: { type: "object", additionalProperties: true },
   InsightOp: { type: "object", additionalProperties: true },
   InsightMergePrepare: { type: "object", properties: { survivorSlug: { type: "string" }, victimPaths: { type: "array", items: { type: "string" } }, victimDraftIds: { type: "array", items: { type: "integer" } } }, additionalProperties: false },

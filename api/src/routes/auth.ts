@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import crypto from "node:crypto";
 import {
   authEnabled,
   buildAuthUrl,
@@ -10,7 +11,8 @@ import {
   verifyState,
 } from "../auth.js";
 import type { AuthMe } from "../../../shared/types.js";
-import { getKv, getUserGithub, setKv, upsertUserOnLogin } from "../db.js";
+import { getKv, getUser, getUserGithub, setKv, setUserApiToken, upsertUserOnLogin } from "../db.js";
+import { encryptToken, decryptToken, tokenEncKeySet } from "../crypto.js";
 import { githubOAuthEnabled } from "../githubWriteIdentity.js";
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
@@ -56,6 +58,41 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return { ok: true };
     },
   );
+
+  // Caller API token (capture-scoped bearer). Stored two ways: a sha256 hash for the O(1)
+  // gate lookup, plus an AES-GCM copy so the capture guide can prefill the live token. The
+  // encrypted copy only exists when TOKEN_ENC_KEY is set (layer 3); without it the token still
+  // works (hash gate) but can't be shown again, so the guide falls back to a <token> placeholder.
+  const mintToken = (email: string): string => {
+    const token = crypto.randomBytes(24).toString("base64url");
+    const hash = crypto.createHash("sha256").update(token).digest("hex");
+    setUserApiToken(email, hash, tokenEncKeySet() ? encryptToken(token) : null);
+    return token;
+  };
+
+  // Fetch the caller's live token, minting one on first call ("token by default"). Returns
+  // token:null when a token exists but can't be recovered (no enc key) — caller shows a placeholder.
+  app.get("/api/me/token", async (req, reply) => {
+    const user = userFromRequest(req);
+    if (!user) return reply.code(401).send({ error: "not signed in" });
+    const row = getUser(user.email);
+    if (!row?.api_token_hash) return { token: mintToken(user.email) };
+    if (row.api_token_enc && tokenEncKeySet()) {
+      try {
+        return { token: decryptToken(row.api_token_enc) };
+      } catch {
+        return { token: null };
+      }
+    }
+    return { token: null };
+  });
+
+  // Rotate: mint a fresh token, overwriting the old (which immediately stops working).
+  app.post("/api/me/token", async (req, reply) => {
+    const user = userFromRequest(req);
+    if (!user) return reply.code(401).send({ error: "not signed in" });
+    return { token: mintToken(user.email) };
+  });
 
   // Kick off the Google consent flow.
   app.get("/api/auth/login", async (req, reply) => {
