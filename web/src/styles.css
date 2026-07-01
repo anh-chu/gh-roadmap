@@ -290,7 +290,19 @@ button.sync-item:disabled {
 .head-overflow-grid {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+.head-overflow-grid .btn {
+  width: 100%;
+  justify-content: flex-start;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.head-overflow-grid .btn:hover {
+  background: var(--surface-2);
 }
 .btn {
   font-family: var(--sans);
