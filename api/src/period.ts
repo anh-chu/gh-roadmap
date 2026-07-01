@@ -30,6 +30,14 @@ function isoWeekParts(d: Date): { year: number; week: number } {
   return { year, week };
 }
 
+// Project an ISO date-time (e.g. a milestone due_on) onto its ISO-week key (YYYY-Www).
+export function dateToWeekKey(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const { year, week } = isoWeekParts(d);
+  return `${year}-W${pad2(week)}`;
+}
+
 // ── Parsing ───────────────────────────────────────────────────────
 function parseMonthKey(key: string): { year: number; month0: number } | null {
   const m = /^(\d{4})-(\d{2})$/.exec(key);

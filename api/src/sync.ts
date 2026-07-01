@@ -5,6 +5,7 @@ import { listWorkspaces } from "./workspace.js";
 import { getMasterFilter, masterFilterSql } from "./masterFilter.js";
 import { refreshPinnedProject, projectFilter } from "./routes/projects.js";
 import { getRepoSlug } from "./github.js";
+import { dateToWeekKey } from "./period.js";
 import {
   fetchAllIssues,
   fetchAllPulls,
@@ -310,13 +311,17 @@ export async function reconcile(opts?: { full?: boolean }): Promise<{
     console.error("milestone due reconcile failed", err);
   }
 
-  // Milestone → planning snap: while an open issue sits in the TODO or Backlog status
-  // and carries a GitHub milestone due, the milestone is authoritative for its timeline
-  // position — its planned_month is (re)written to the milestone's month every sync,
-  // overriding manual month drags. The PM takes ownership by moving it off TODO/Backlog
-  // status (then placement reads its own planned date). Requires a pinned project
-  // (status_label source); no-op otherwise. Per-workspace, master-filter scoped
-  // (planned dates are per-workspace).
+  // Milestone → planning snap: the milestone due date drives an open issue's week-level
+  // plan. Two cases, both snapping to the milestone's ISO week (always week-level,
+  // regardless of the view granularity):
+  //   1. Issue sits in TODO or Backlog status — the milestone is authoritative for its
+  //      timeline position; its planned_week is (re)written every sync, overriding manual
+  //      drags. The PM takes ownership by moving it off TODO/Backlog status.
+  //   2. Issue is planned at month granularity (planned_month set, planned_week null) and
+  //      the milestone falls in that same month — refine the month plan to the milestone's
+  //      exact week. A milestone in a different month is deliberate drift, left alone.
+  // Requires a pinned project (status_label source); no-op otherwise. Per-workspace,
+  // master-filter scoped (planned dates are per-workspace).
   try {
     const pin = projectFilter();
     if (pin !== null) {
@@ -329,25 +334,45 @@ export async function reconcile(opts?: { full?: boolean }): Promise<{
           .get(ws.id) as { todo_status_name: string; backlog_status_name: string } | undefined;
         if (!statusRow) continue;
         const mf = masterFilterSql(getMasterFilter(ws.id), "i");
-        db()
+        const snapRows = db()
           .prepare(
-            `INSERT INTO roadmap_meta(workspace_id, issue_number, planned_month, planned_week, app_updated_at)
-             SELECT ?, i.number, substr(i.milestone_due, 1, 7), NULL, ?
+            `SELECT i.number AS number, i.milestone_due AS milestone_due
              FROM issues i
              JOIN project_items p ON p.content_number = i.number AND p.content_type = 'Issue'
                AND p.project_number = ${pin} AND (p.content_repo = ? OR p.content_repo IS NULL)
+             LEFT JOIN roadmap_meta m ON m.issue_number = i.number AND m.workspace_id = ?
              WHERE i.milestone_due IS NOT NULL
                AND i.state = 'open'
-               AND p.status_label IN (?, ?)
-               ${mf ? `AND ${mf.sql}` : ""}
-             ON CONFLICT(workspace_id, issue_number) DO UPDATE SET
-               planned_month = excluded.planned_month,
-               planned_week = NULL,
-               app_updated_at = excluded.app_updated_at
-             WHERE roadmap_meta.planned_month IS NOT excluded.planned_month
-                OR roadmap_meta.planned_week IS NOT NULL`,
+               AND (
+                 p.status_label IN (?, ?)
+                 OR (m.planned_month IS NOT NULL AND m.planned_week IS NULL
+                     AND m.planned_month = substr(i.milestone_due, 1, 7))
+               )
+               ${mf ? `AND ${mf.sql}` : ""}`,
           )
-          .run(ws.id, now, slug, statusRow.todo_status_name, statusRow.backlog_status_name, ...(mf?.params ?? []));
+          .all(slug, ws.id, statusRow.todo_status_name, statusRow.backlog_status_name, ...(mf?.params ?? [])) as {
+          number: number;
+          milestone_due: string;
+        }[];
+        // ISO-week key computed in JS (SQLite has no ISO-8601 week function).
+        const upsertSnap = db().prepare(
+          `INSERT INTO roadmap_meta(workspace_id, issue_number, planned_month, planned_week, app_updated_at)
+           VALUES(?, ?, NULL, ?, ?)
+           ON CONFLICT(workspace_id, issue_number) DO UPDATE SET
+             planned_month = NULL,
+             planned_week = excluded.planned_week,
+             app_updated_at = excluded.app_updated_at
+           WHERE roadmap_meta.planned_week IS NOT excluded.planned_week
+              OR roadmap_meta.planned_month IS NOT NULL`,
+        );
+        const snapTx = db().transaction(() => {
+          for (const r of snapRows) {
+            const wk = dateToWeekKey(r.milestone_due);
+            if (!wk) continue;
+            upsertSnap.run(ws.id, r.number, wk, now);
+          }
+        });
+        snapTx();
       }
     }
   } catch (err) {
