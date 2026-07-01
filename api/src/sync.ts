@@ -202,6 +202,12 @@ export async function reconcile(opts?: { full?: boolean }): Promise<{
   try {
   const last = opts?.full ? null : getKv("lastSyncAt");
   const lastWebhook = getKv("lastWebhookAt");
+  // Stamp the cutoff from BEFORE the fetch. The GraphQL snapshot is taken at or after
+  // this instant, so any issue changed during the fetch/reconcile window has
+  // updated_at > startedAt and is caught next run. Stamping completion time instead
+  // opened a gap where mid-sync edits (e.g. a multi-step pod-label move) were skipped
+  // by every future partial sync until some later edit bumped updated_at again.
+  const startedAt = new Date().toISOString();
 
   // Parallel fetch with early page cutoff on incremental sync.
   const [issuesResult, pulls] = await Promise.all([
@@ -357,7 +363,7 @@ export async function reconcile(opts?: { full?: boolean }): Promise<{
     console.error("pinned project refresh failed", err);
   }
 
-  setKv("lastSyncAt", new Date().toISOString());
+  setKv("lastSyncAt", startedAt);
   return {
     issues: issues.length,
     comments: comments.length,
