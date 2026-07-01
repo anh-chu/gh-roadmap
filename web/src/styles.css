@@ -3020,6 +3020,80 @@ select.field-input {
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
+.pop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pop-chip {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: all 0.1s;
+  white-space: nowrap;
+}
+.pop-chip:hover {
+  border-color: var(--border-2);
+  color: var(--ink);
+}
+.pop-chip.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--canvas);
+}
+.tag-picker {
+  position: relative;
+}
+.tag-picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-2);
+  z-index: 10;
+  padding: 4px;
+}
+.tag-picker-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-picker-opt:hover {
+  background: var(--hover);
+}
+.tag-picker-opt.active {
+  color: var(--ink-3);
+}
+.tag-picker-opt.active::after {
+  content: " ✓";
+}
+.tag-picker-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ink-4);
+}
 .pop-segment {
   display: flex;
   gap: 2px;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FlowState } from "../../../shared/types";
 
 export type StateFilter = "all" | "open" | "closed";
@@ -120,6 +120,85 @@ export function parseLabelQuery(raw: string): ParsedLabelQuery {
   return out;
 }
 
+// Bounded-height picker for lists that can grow past a handful of values (assignees,
+// milestones): selected show as removable chips, everything else lives behind a
+// type-to-filter input instead of being rendered all at once.
+interface TagPickerProps {
+  label: string;
+  options: string[];
+  selected: string[];
+  onToggle: (v: string) => void;
+  placeholder: string;
+}
+
+function TagPicker({ label, options, selected, onToggle, placeholder }: TagPickerProps): JSX.Element {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent): void => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const pool = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+    return pool.slice(0, 30);
+  }, [options, query]);
+
+  return (
+    <div className="pop-section" ref={rootRef}>
+      <div className="pop-label">{label}</div>
+      {selected.length > 0 && (
+        <div className="pop-chips" style={{ marginBottom: 6 }}>
+          {selected.map((v) => (
+            <button key={v} className="pop-chip active" onClick={() => onToggle(v)}>
+              {v} ×
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="tag-picker">
+        <input
+          className="pop-input"
+          placeholder={placeholder}
+          value={query}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+        />
+        {open && options.length > 0 && (
+          <div className="tag-picker-list">
+            {matches.length === 0 ? (
+              <div className="tag-picker-empty">No match</div>
+            ) : (
+              matches.map((v) => (
+                <button
+                  key={v}
+                  className={"tag-picker-opt" + (selected.includes(v) ? " active" : "")}
+                  onClick={() => {
+                    onToggle(v);
+                    setQuery("");
+                  }}
+                >
+                  {v}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface FilterPopoverProps {
   anchor: DOMRect | null;
   knownAssignees: string[];
@@ -183,25 +262,13 @@ export function FilterPopover(props: FilterPopoverProps): JSX.Element | null {
       style={{ top: anchor.bottom + 6, left: anchor.right - 280 }}
       role="dialog"
     >
-      <div className="pop-section">
-        <div className="pop-label">Assignee</div>
-        <div className="pop-checks">
-          {knownAssignees.length === 0 ? (
-            <span style={{ color: "var(--ink-4)", fontSize: 12 }}>—</span>
-          ) : (
-            knownAssignees.map((a) => (
-              <label key={a} className="pop-check">
-                <input
-                  type="checkbox"
-                  checked={value.assignees.includes(a)}
-                  onChange={() => toggleAssignee(a)}
-                />
-                <span>{a}</span>
-              </label>
-            ))
-          )}
-        </div>
-      </div>
+      <TagPicker
+        label="Assignee"
+        options={knownAssignees}
+        selected={value.assignees}
+        onToggle={toggleAssignee}
+        placeholder={knownAssignees.length === 0 ? "—" : "Search assignees…"}
+      />
       <div className="pop-section">
         <div className="pop-label">State</div>
         <div className="pop-segment">
@@ -232,62 +299,49 @@ export function FilterPopover(props: FilterPopoverProps): JSX.Element | null {
       </div>
       <div className="pop-section">
         <div className="pop-label">Flow</div>
-        <div className="pop-checks">
+        <div className="pop-chips">
           {FLOW_STATES.map((s) => (
-            <label key={s} className="pop-check">
-              <input
-                type="checkbox"
-                checked={value.flowStates.includes(s)}
-                onChange={() => toggleFlow(s)}
-              />
-              <span>{s}</span>
-            </label>
+            <button
+              key={s}
+              className={"pop-chip" + (value.flowStates.includes(s) ? " active" : "")}
+              onClick={() => toggleFlow(s)}
+            >
+              {s}
+            </button>
           ))}
         </div>
       </div>
       <div className="pop-section">
         <div className="pop-label">Signal</div>
-        <div className="pop-checks">
-          <label className="pop-check">
-            <input
-              type="checkbox"
-              checked={value.hasPR}
-              onChange={() => onChange({ ...value, hasPR: !value.hasPR })}
-            />
-            <span>has PR</span>
-          </label>
-          <label className="pop-check">
-            <input
-              type="checkbox"
-              checked={value.hasInsights}
-              onChange={() => onChange({ ...value, hasInsights: !value.hasInsights })}
-            />
-            <span>has insights</span>
-          </label>
+        <div className="pop-chips">
+          <button
+            className={"pop-chip" + (value.hasPR ? " active" : "")}
+            onClick={() => onChange({ ...value, hasPR: !value.hasPR })}
+          >
+            has PR
+          </button>
+          <button
+            className={"pop-chip" + (value.hasInsights ? " active" : "")}
+            onClick={() => onChange({ ...value, hasInsights: !value.hasInsights })}
+          >
+            has insights
+          </button>
         </div>
       </div>
       {knownMilestones.length > 0 && (
-        <div className="pop-section">
-          <div className="pop-label">Milestone</div>
-          <div className="pop-checks">
-            {knownMilestones.map((m) => (
-              <label key={m} className="pop-check">
-                <input
-                  type="checkbox"
-                  checked={value.milestones.includes(m)}
-                  onChange={() => toggleMilestone(m)}
-                />
-                <span>{m}</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <TagPicker
+          label="Milestone"
+          options={knownMilestones}
+          selected={value.milestones}
+          onToggle={toggleMilestone}
+          placeholder="Search milestones…"
+        />
       )}
       <div className="pop-section">
         <div className="pop-label">Label / query</div>
         <input
           className="pop-input"
-          placeholder="label substring · or label:x -label:y is:open flow:stalled has:pr"
+          placeholder="label:x -label:y is:open flow:stalled has:pr"
           value={value.labelQuery}
           onChange={(e) => onChange({ ...value, labelQuery: e.target.value })}
         />
