@@ -498,6 +498,23 @@ export function computeScheduleHealth(
   };
 }
 
+export function computeTriage(
+  workspaceId: number,
+  mf: MasterFilter = getMasterFilter(workspaceId),
+): Map<number, "overdue" | "due-now"> {
+  const g = loadGranularity(workspaceId);
+  const now = new Date();
+  const out = new Map<number, "overdue" | "due-now">();
+  for (const i of loadIssues(workspaceId, mf)) {
+    if (i.state !== "open" || (i.planned_month === null && i.planned_week === null)) continue;
+    const d = periodsUntilDue(g, i.planned_month, i.planned_week, now);
+    if (d === null) continue;
+    if (d < 0) out.set(i.number, "overdue");
+    else if (d === 0) out.set(i.number, "due-now");
+  }
+  return out;
+}
+
 export interface RoadmapPeriodRollup {
   key: string;
   label: string;

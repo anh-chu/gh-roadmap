@@ -450,6 +450,7 @@ export function useIssues(onError: (msg: string) => void): UseIssuesResult {
         effort: null,
         projectStatus: null,
         projectItemId: null,
+        dueStatus: null,
         issueType: null,
         issueTypeColor: null,
       };

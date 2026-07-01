@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { q } from "../db.js";
+import { getRepoSlug } from "../github.js";
 import { getMasterFilter, masterFilterSql } from "../masterFilter.js";
 import { computeFlowState, type FlowInput, type FlowThresholdsResolved } from "../flow.js";
-import type { FlowResultMap } from "../../../shared/types.js";
+import { projectFilter } from "./projects.js";
+import type { FlowDisagreement, FlowResultMap } from "../../../shared/types.js";
 
 interface IssueRow {
   number: number;
@@ -10,6 +12,7 @@ interface IssueRow {
   created_at: string | null;
   updated_at: string;
   assignee: string | null;
+  project_status: string | null;
 }
 
 interface PullRow {
@@ -55,6 +58,26 @@ interface ThresholdRow {
   flow_stall_days: number;
   flow_cold_days: number;
   flow_fresh_days: number;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function pinnedProjectJoin(): { select: string; join: string } {
+  const pin = projectFilter();
+  if (pin === null) return { select: "NULL AS project_status", join: "" };
+  const slug = (getRepoSlug() ?? "").replace(/'/g, "''");
+  return {
+    select: "p.status_label AS project_status",
+    join: `LEFT JOIN project_items p ON p.content_number = i.number AND p.content_type = 'Issue' AND p.project_number = ${pin} AND (p.content_repo = '${slug}' OR p.content_repo IS NULL)`,
+  };
+}
+
+function boardBucket(label: string): "terminal" | "in-progress" | "in-review" | null {
+  const s = label.trim().toLowerCase();
+  if (["done", "closed", "shipped", "complete", "completed", "resolved"].includes(s)) return "terminal";
+  if (["in review", "in-review", "reviewing", "review"].includes(s)) return "in-review";
+  if (["in progress", "in-progress", "in code", "coding", "started", "doing"].includes(s)) return "in-progress";
+  return null;
 }
 
 // Flow rule metadata, mirrors AttentionRule shape so the existing panel renders both.
@@ -157,9 +180,11 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
     const mf = masterFilterSql(getMasterFilter(req.workspaceId));
     const scope = mf ? ` WHERE ${mf.sql}` : "";
     const scopeParams = mf ? mf.params : [];
+    const pj = pinnedProjectJoin();
 
     const issues = q(
-        `SELECT i.number, i.state, i.created_at, i.updated_at, i.assignee FROM issues i${scope}`,
+        `SELECT i.number, i.state, i.created_at, i.updated_at, i.assignee, ${pj.select}
+         FROM issues i ${pj.join}${scope}`,
       )
       .all(...scopeParams) as IssueRow[];
 
@@ -241,7 +266,24 @@ export async function flowRoutes(app: FastifyInstance): Promise<void> {
         events: evs.map((e) => ({ type: e.event_type, createdAt: e.created_at })),
         thresholds,
       };
-      result[i.number] = computeFlowState(input);
+      const flow = computeFlowState(input);
+      const boardStatus = i.project_status ?? null;
+      const noPrLinked = linkedPulls.length === 0;
+      const now = Date.now();
+      let disagreement: FlowDisagreement | null = null;
+      if (boardStatus !== null && i.state === "open") {
+        const bucket = boardBucket(boardStatus);
+        const mergedPr = linkedPulls.some((p) => !!p.merged);
+        const reviewInWindow = linkedPulls.some(
+          (p) =>
+            p.state === "open" &&
+            (reviewsByPull.get(p.number) ?? []).some((r) => Date.parse(r.submitted_at) >= now - thresholds.reviewActivityDays * DAY_MS),
+        );
+        if (bucket === "terminal" && !mergedPr) disagreement = "board-done-open";
+        else if ((bucket === "in-progress" || bucket === "in-review") && mergedPr) disagreement = "board-active-merged";
+        else if (bucket === "in-review" && !reviewInWindow) disagreement = "board-review-idle";
+      }
+      result[i.number] = { ...flow, boardStatus, disagreement, noPrLinked };
     }
     return result;
   });

@@ -4,6 +4,7 @@ import { createIssue, getRepoSlug, updateIssue, type IssueCreate, type IssuePatc
 import { runGithubWrite } from "../githubWriteIdentity.js";
 import { upsertIssue } from "../sync.js";
 import { getMasterFilter, masterFilterSql } from "../masterFilter.js";
+import { computeTriage } from "../health.js";
 import { getWorkspace } from "../workspace.js";
 import { projectFilter } from "./projects.js";
 
@@ -45,7 +46,10 @@ type IssueJoinedRow = {
   project_item_id: string | null;
 };
 
-function rowToJson(r: IssueJoinedRow) {
+function rowToJson(
+  r: IssueJoinedRow,
+  due?: "overdue" | "due-now" | null,
+) {
   return {
     number: r.number,
     title: r.title,
@@ -65,6 +69,7 @@ function rowToJson(r: IssueJoinedRow) {
     isTodo: !!r.is_todo,
     projectStatus: r.project_status,
     projectItemId: r.project_item_id,
+    dueStatus: due ?? null,
   };
 }
 
@@ -116,10 +121,12 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.get("/api/issues", async (req) => {
-    const mf = masterFilterSql(getMasterFilter(req.workspaceId));
+    const mfObj = getMasterFilter(req.workspaceId);
+    const mf = masterFilterSql(mfObj);
     const where = mf ? `WHERE ${mf.sql}` : "";
     const params = mf ? mf.params : [];
     const pj = pinnedProjectJoin();
+    const triage = computeTriage(req.workspaceId, mfObj);
     const rows = q(
         `SELECT i.number, i.title, i.body, i.state, i.assignee, i.milestone, i.milestone_due, i.labels, i.updated_at, i.issue_type, i.issue_type_color,
                 m.planned_month, m.planned_week, m.roadmap_notes, m.position, m.is_todo, ${pj.select}
@@ -130,7 +137,7 @@ export async function issuesRoutes(app: FastifyInstance): Promise<void> {
          ORDER BY i.updated_at DESC`,
       )
       .all(req.workspaceId, ...params) as IssueJoinedRow[];
-    return rows.map(rowToJson);
+    return rows.map((r) => rowToJson(r, triage.get(r.number)));
   });
 
   app.patch<{ Params: { num: string }; Body: IssuePatch & { baseBody?: string | null } }>(

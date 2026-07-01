@@ -19,9 +19,10 @@ export interface ApiIssue {
   roadmapNotes: string | null;
   position: number | null;
   isTodo: boolean;
-  // Pinned GitHub Project (GITHUB_PROJECT_NUMBER) mirror — null when off-board or no project pinned.
+  // Pinned GitHub Project (GITHUB_PROJECT_NUMBER) mirror - null when off-board or no project pinned.
   projectStatus: string | null;
   projectItemId: string | null;
+  dueStatus: "overdue" | "due-now" | null;
 }
 
 export interface ApiComment {
@@ -229,6 +230,7 @@ export interface Issue {
   effort: EffortRating | null; // from an `effort:*` label, else null
   projectStatus: string | null; // pinned-project board Status label; null when off-board
   projectItemId: string | null; // pinned-project item id (needed for status writes)
+  dueStatus: "overdue" | "due-now" | null;
   issueType: string | null;
   issueTypeColor: string | null;
 }
@@ -302,11 +304,20 @@ export type FlowState =
   | "fresh"
   | "closed";
 
+
 export interface FlowResult {
   state: FlowState;
   score: number;
   signals: string[];
+  boardStatus?: string | null;
+  disagreement?: FlowDisagreement | null;
+  noPrLinked?: boolean;
 }
+
+export type FlowDisagreement =
+  | "board-done-open"
+  | "board-active-merged"
+  | "board-review-idle";
 
 export type FlowResultMap = Record<number, FlowResult>;
 
@@ -793,6 +804,7 @@ export function fromApi(r: ApiIssue): Issue {
     effort: effortFromLabels(labels),
     projectStatus: r.projectStatus ?? null,
     projectItemId: r.projectItemId ?? null,
+    dueStatus: r.dueStatus ?? null,
     issueType: r.issueType ?? null,
     issueTypeColor: r.issueTypeColor ?? null,
   };

@@ -156,6 +156,15 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
         </span>
         <span className="card-meta">
           {resolveEffortChip(issue, summary, "bars")}
+          {issue.dueStatus === "overdue" ? (
+            <span className="com card-due-chip due-overdue" title="Planned period already passed">
+              <span aria-hidden>⌛</span>overdue
+            </span>
+          ) : issue.dueStatus === "due-now" ? (
+            <span className="com card-due-chip due-now" title="Due this period">
+              <span aria-hidden>⌛</span>due now
+            </span>
+          ) : null}
           {pr ? (
             <span className={`com card-pr-chip pr-state-${prSt!.mod}`} title={prTip}>
               <span aria-hidden>⑃</span>
@@ -171,16 +180,13 @@ export function Card({ issue, onOpen, flowResult, insightCount = 0, pulls, granu
             </span>
           ) : null}
           {milestoneCol ? (
-            <span className="com card-drift-chip" title={`Milestone "${issue.milestone ?? ""}" due ${milestoneCol} — plan disagrees`}>
+            <span className="com card-drift-chip" title={`Milestone "${issue.milestone ?? ""}" due ${milestoneCol} - plan disagrees`}>
               <span aria-hidden>⚠</span>
               {milestoneCol}
             </span>
           ) : null}
           {unanchored ? (
-            <span
-              className="com card-unanchored-chip"
-              title="Planned, but no milestone"
-            >
+            <span className="com card-unanchored-chip" title="Planned, but no milestone">
               <span aria-hidden>⚠</span>
               no milestone
             </span>

@@ -1,15 +1,12 @@
 import type { CSSProperties } from "react";
-import type { FlowResult, FlowState } from "../../../shared/types";
+import type { FlowDisagreement, FlowResult, FlowState } from "../../../shared/types";
 
 interface Props {
   result: FlowResult | undefined;
   size?: "sm" | "md";
+  hideBoard?: boolean;
 }
 
-// Maps flow state → CSS token. Tokens defined in styles.css.
-// Color semantics: red (--r) is reserved for DANGER (overdue / at-risk) and is
-// never spent on a descriptive flow state. Positive momentum reads green/teal,
-// neutral activity reads blue/purple, "watch" reads amber, inactive reads grey.
 const COLOR: Record<FlowState, string> = {
   shipping: "var(--green)",
   "in-review": "var(--n)",
@@ -32,22 +29,49 @@ const LABEL: Record<FlowState, string> = {
   closed: "closed",
 };
 
-export function FlowPill({ result, size = "md" }: Props): JSX.Element | null {
+const DISAGREE_NOTE: Record<FlowDisagreement, string> = {
+  "board-done-open": "board says done, but the issue is still open with no merged PR",
+  "board-active-merged": "board still active, but a linked PR already merged",
+  "board-review-idle": "board says in review, but no review activity in the window",
+};
+
+export function FlowPill({ result, size = "md", hideBoard = false }: Props): JSX.Element | null {
   if (!result) return null;
   if (result.state === "closed" && size === "sm") return null;
-  const color = COLOR[result.state];
-  const tooltip =
-    `${LABEL[result.state]} (score ${result.score.toFixed(1)})` +
-    (result.signals.length ? ` · ${result.signals.join(" · ")}` : "");
+
+  const rawBoardStatus = hideBoard ? null : result.boardStatus ?? null;
+  const boardStatus = rawBoardStatus && rawBoardStatus.trim() ? rawBoardStatus : null;
+  const disagreement = hideBoard ? null : result.disagreement ?? null;
+  const stale = result.state === "stalled" || result.state === "cold";
+  const color = disagreement ? "var(--r)" : stale ? "var(--e)" : COLOR[result.state];
+  const label = boardStatus ?? LABEL[result.state];
+  const staleDays = size === "md" && stale && Number.isFinite(result.score) ? Math.round(result.score) : null;
+
+  const tipParts = [
+    boardStatus ? `flow: ${LABEL[result.state]} (score ${result.score.toFixed(1)})` : `${label} (score ${result.score.toFixed(1)})`,
+  ];
+  if (boardStatus) tipParts.push(`board: ${boardStatus}`);
+  if (disagreement) tipParts.push(DISAGREE_NOTE[disagreement]);
+  if (result.noPrLinked) tipParts.push("no PR linked");
+  if (result.signals.length) tipParts.push(result.signals.join(" · "));
+
   const style: CSSProperties = { color };
-  const cls = "flow-pill " + result.state + " size-" + size;
+  const cls = `flow-pill ${result.state} size-${size}${disagreement ? " disagree" : ""}`;
   if (size === "sm") {
-    return <span className={cls} style={style} title={tooltip}><i className="flow-dot" /></span>;
+    return (
+      <span className={cls} style={style} title={tipParts.join(" · ")}>
+        <i className="flow-dot" />
+      </span>
+    );
   }
+
   return (
-    <span className={cls} style={style} title={tooltip}>
+    <span className={cls} style={style} title={tipParts.join(" · ")}>
       <i className="flow-dot" />
-      <span className="flow-label">{LABEL[result.state]}</span>
+      {disagreement ? <span className="flow-warn" aria-hidden>⚠</span> : null}
+      <span className="flow-label">{label}</span>
+      {staleDays !== null ? <span className="flow-age">quiet {staleDays}d</span> : null}
+      {result.noPrLinked ? <span className="flow-nopr">no PR</span> : null}
     </span>
   );
 }

@@ -1230,9 +1230,17 @@ button.av {
 .card-drift-chip {
   color: var(--accent);
 }
-/* Planned-but-no-milestone — an alert, same weight as the drift warn */
+/* Planned-but-no-milestone - an alert, same weight as the drift warn */
 .card-unanchored-chip {
   color: var(--accent);
+}
+.card-due-chip.due-overdue {
+  color: var(--r);
+  background: var(--r-bg);
+}
+.card-due-chip.due-now {
+  color: var(--e);
+  background: var(--e-bg);
 }
 .card-state {
   display: inline-flex;
@@ -3862,6 +3870,28 @@ select.field-input {
 .flow-pill .flow-label {
   color: var(--ink);
   letter-spacing: 0.01em;
+}
+.flow-pill.disagree .flow-label {
+  color: var(--r);
+}
+.flow-pill .flow-age {
+  color: var(--e);
+  font-size: 0.85em;
+  margin-left: 4px;
+}
+.flow-pill .flow-nopr {
+  color: var(--ink-3);
+  font-size: 0.85em;
+  margin-left: 4px;
+}
+.flow-pill .flow-nopr {
+  color: var(--ink-3);
+  font-size: 0.85em;
+  margin-left: 4px;
+}
+.flow-pill .flow-warn {
+  font-size: 0.9em;
+  margin-right: 1px;
 }
 .flow-pill.closed {
   opacity: 0.5;

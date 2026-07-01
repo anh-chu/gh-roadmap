@@ -86,7 +86,7 @@ function KanbanCard({ item, issue, onOpen, onDraftClick, flowResult }: KanbanCar
         )}
         {isDraft && <span className="kb-tag draft">Draft</span>}
         {isPr && <span className="kb-tag pr">PR</span>}
-        <FlowPill result={flowResult} size="sm" />
+        <FlowPill result={flowResult} size="sm" hideBoard />
         {issue && <TypeBadge issue={issue} />}
       </div>
       <div className="kb-card-title">{item.contentTitle}</div>
